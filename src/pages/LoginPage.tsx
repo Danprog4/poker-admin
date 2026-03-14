@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { FormField } from '../components/FormField'
 import { trpc } from '../lib/trpc'
+import type { AdminSession } from '../lib/types'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -17,15 +18,16 @@ export function LoginPage() {
   })
 
   useEffect(() => {
-    if (meQuery.data) {
+    if (meQuery.status === 'success' && meQuery.data) {
       navigate('/', { replace: true })
     }
-  }, [meQuery.data, navigate])
+  }, [meQuery.data, meQuery.status, navigate])
 
   const loginMutation = trpc.adminAuth.login.useMutation({
-    onSuccess: async () => {
-      await utils.invalidate()
-      await meQuery.refetch()
+    onSuccess: async (admin: AdminSession) => {
+      setErrorMessage('')
+      utils.adminAuth.me.setData(undefined, admin)
+      await utils.admin.bootstrap.invalidate()
       navigate('/', { replace: true })
     },
     onError: (error: unknown) => {

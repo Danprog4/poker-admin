@@ -1,5 +1,4 @@
 import type { PropsWithChildren } from 'react'
-import { useNavigate } from 'react-router-dom'
 
 import type { AdminSession } from '../lib/types'
 import { trpc } from '../lib/trpc'
@@ -10,13 +9,13 @@ type AdminLayoutProps = PropsWithChildren<{
 }>
 
 export function AdminLayout({ admin, children }: AdminLayoutProps) {
-  const navigate = useNavigate()
   const utils = trpc.useUtils()
 
   const logoutMutation = trpc.adminAuth.logout.useMutation({
     onSuccess: async () => {
-      await utils.invalidate()
-      navigate('/login', { replace: true })
+      utils.adminAuth.me.setData(undefined, undefined)
+      utils.admin.bootstrap.setData(undefined, undefined)
+      window.location.replace('/login')
     },
   })
 
