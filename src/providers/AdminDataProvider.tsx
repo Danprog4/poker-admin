@@ -424,10 +424,15 @@ export const AdminDataContext = createContext<AdminDataContextValue | null>(null
 
 export function AdminDataProvider({ children }: PropsWithChildren) {
   const [nowTs] = useState(() => Date.now())
+  const meQuery = trpc.adminAuth.me.useQuery(undefined, {
+    retry: false,
+    staleTime: 60_000,
+  })
 
   const bootstrapQuery = trpc.admin.bootstrap.useQuery(undefined, {
     staleTime: 0,
     retry: 1,
+    enabled: meQuery.status === 'success',
   })
 
   const createTournamentMutation = trpc.admin.tournaments.create.useMutation()

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { FormField } from '../components/FormField'
+import { setAdminToken } from '../lib/admin-auth'
 import { trpc } from '../lib/trpc'
 import type { AdminSession } from '../lib/types'
 
@@ -24,8 +25,11 @@ export function LoginPage() {
   }, [meQuery.data, meQuery.status, navigate])
 
   const loginMutation = trpc.adminAuth.login.useMutation({
-    onSuccess: async (admin: AdminSession) => {
+    onSuccess: async (result: AdminSession & { token: string }) => {
+      const { token, ...admin } = result
+
       setErrorMessage('')
+      setAdminToken(token)
       utils.adminAuth.me.setData(undefined, admin)
       await utils.admin.bootstrap.invalidate()
       navigate('/', { replace: true })

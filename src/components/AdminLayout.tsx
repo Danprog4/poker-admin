@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from 'react'
 
 import type { AdminSession } from '../lib/types'
+import { clearAdminToken } from '../lib/admin-auth'
 import { trpc } from '../lib/trpc'
 import { Sidebar } from './Sidebar'
 
@@ -10,12 +11,19 @@ type AdminLayoutProps = PropsWithChildren<{
 
 export function AdminLayout({ admin, children }: AdminLayoutProps) {
   const utils = trpc.useUtils()
+  const resetAuthState = () => {
+    clearAdminToken()
+    utils.adminAuth.me.setData(undefined, undefined)
+    utils.admin.bootstrap.setData(undefined, undefined)
+    window.location.replace('/login')
+  }
 
   const logoutMutation = trpc.adminAuth.logout.useMutation({
     onSuccess: async () => {
-      utils.adminAuth.me.setData(undefined, undefined)
-      utils.admin.bootstrap.setData(undefined, undefined)
-      window.location.replace('/login')
+      resetAuthState()
+    },
+    onError: () => {
+      resetAuthState()
     },
   })
 
