@@ -8,7 +8,6 @@ const navItems = [
   { to: "/users", label: "Юзеры" },
   { to: "/statuses", label: "Статусы" },
   { to: "/medals", label: "Медали" },
-  { to: "/adjustments", label: "Корректировки" },
   { to: "/notifications", label: "Уведомления" },
 ];
 

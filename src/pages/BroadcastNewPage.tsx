@@ -1,31 +1,25 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { BroadcastPreview } from '../components/BroadcastPreview'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { FormField } from '../components/FormField'
 import type { BroadcastTargetFilter } from '../lib/admin-models'
+import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
 
 export function BroadcastNewPage() {
   const navigate = useNavigate()
   const { state, createBroadcast, sendBroadcast, countBroadcastRecipients } = useAdminData()
+  const { error, success } = useToast()
 
   const [message, setMessage] = useState('')
   const [targetFilter, setTargetFilter] = useState<BroadcastTargetFilter>('all')
   const [targetSeriesId, setTargetSeriesId] = useState('none')
   const [targetTournamentId, setTargetTournamentId] = useState('none')
   const [openConfirm, setOpenConfirm] = useState(false)
-  const [notice, setNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [isSending, setIsSending] = useState(false)
-
-  useEffect(() => {
-    if (notice) {
-      const timer = setTimeout(() => setNotice(null), 4000)
-      return () => clearTimeout(timer)
-    }
-  }, [notice])
 
   const recipientsCount = useMemo(
     () =>
@@ -43,7 +37,7 @@ export function BroadcastNewPage() {
     }
 
     if (!message.trim()) {
-      setNotice({ text: 'Сообщение не может быть пустым', type: 'error' })
+      error('Сообщение не может быть пустым')
       return
     }
 
@@ -59,10 +53,11 @@ export function BroadcastNewPage() {
     setIsSavingDraft(false)
 
     if (!createdId) {
-      setNotice({ text: 'Не удалось создать черновик', type: 'error' })
+      error('Не удалось создать черновик')
       return
     }
 
+    success('Черновик сохранён')
     navigate(`/broadcasts/${createdId}`)
   }
 
@@ -72,7 +67,7 @@ export function BroadcastNewPage() {
     }
 
     if (!message.trim()) {
-      setNotice({ text: 'Сообщение не может быть пустым', type: 'error' })
+      error('Сообщение не может быть пустым')
       return
     }
 
@@ -87,7 +82,7 @@ export function BroadcastNewPage() {
     })
 
     if (!createdId) {
-      setNotice({ text: 'Не удалось создать рассылку', type: 'error' })
+      error('Не удалось создать рассылку')
       setIsSending(false)
       return
     }
@@ -96,11 +91,12 @@ export function BroadcastNewPage() {
     setIsSending(false)
 
     if (!sent) {
-      setNotice({ text: 'Не удалось отправить рассылку', type: 'error' })
+      error('Не удалось отправить рассылку')
       return
     }
 
     setOpenConfirm(false)
+    success('Рассылка отправлена')
     navigate(`/broadcasts/${createdId}`)
   }
 
@@ -190,19 +186,6 @@ export function BroadcastNewPage() {
 
         <BroadcastPreview message={message} recipientsCount={recipientsCount} />
       </div>
-
-      {notice ? (
-        <div
-          className={`rounded-xl border p-3 text-sm ${
-            notice.type === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          }`}
-        >
-          {notice.text}
-        </div>
-      ) : null}
-
       <ConfirmDialog
         open={openConfirm}
         title="Отправить рассылку?"

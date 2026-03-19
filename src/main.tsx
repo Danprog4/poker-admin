@@ -6,15 +6,18 @@ import App from './App'
 import './index.css'
 import { AppProviders } from './providers/AppProviders'
 import { AdminDataProvider } from './providers/AdminDataProvider'
+import { ToastProvider } from './providers/ToastProvider'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppProviders>
-      <AdminDataProvider>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </AdminDataProvider>
+      <ToastProvider>
+        <AdminDataProvider>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </AdminDataProvider>
+      </ToastProvider>
     </AppProviders>
   </StrictMode>,
 )

@@ -1,4 +1,5 @@
-import type { PropsWithChildren } from 'react'
+import { useEffect, type PropsWithChildren } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import type { AdminSession } from '../lib/types'
 import { clearAdminToken } from '../lib/admin-auth'
@@ -11,6 +12,12 @@ type AdminLayoutProps = PropsWithChildren<{
 
 export function AdminLayout({ admin, children }: AdminLayoutProps) {
   const utils = trpc.useUtils()
+  const location = useLocation()
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [location.pathname])
+
   const resetAuthState = () => {
     clearAdminToken()
     utils.adminAuth.me.setData(undefined, undefined)

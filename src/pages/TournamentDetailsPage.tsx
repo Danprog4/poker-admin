@@ -4,16 +4,28 @@ import { Link, useParams } from 'react-router-dom'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable } from '../components/DataTable'
 import { FormField } from '../components/FormField'
-import { ResultsImporter } from '../components/ResultsImporter'
 import { SearchableSelect } from '../components/SearchableSelect'
 import { StatusBadge } from '../components/StatusBadge'
+import { TournamentDescriptionEditor } from '../components/TournamentDescriptionEditor'
+import {
+  TournamentCardPreview,
+  TournamentDetailPreview,
+} from '../components/TournamentPreview'
 import type {
   TournamentResult,
   TournamentStatus,
 } from '../lib/admin-models'
 import { formatDateTime, formatDateTimeInput } from '../lib/date'
 import { fileToDataUrl } from '../lib/imageUpload'
+import { replaceLeadingZeroOnFocus } from '../lib/number-input'
+import {
+  createDescriptionBlock,
+  parseTournamentDescription,
+  serializeTournamentDescription,
+  type TournamentDescriptionBlock,
+} from '../lib/tournament-description'
 import { useAdminData } from '../providers/useAdminData'
+import { useToast } from '../providers/ToastProvider'
 
 type EditableResult = {
   place: number
@@ -29,15 +41,16 @@ const statusOptions: Array<{ value: TournamentStatus; label: string }> = [
   { value: 'cancelled', label: 'Отменён' },
 ]
 
+function getDefaultPrepayMessage(login: string) {
+  return `Админ добавил вас в список предоплаты, ${login}. Напишите менеджеру, чтобы закрыть вопрос с оплатой и снова записываться на турниры без ограничений.`
+}
+
 export function TournamentDetailsPage() {
   const { id } = useParams()
   const tournamentId = Number(id)
 
   const {
     state,
-    activeSeries,
-    ratingsBySeriesId,
-    getSeriesById,
     getTournamentById,
     getTournamentParticipants,
     updateTournament,
@@ -46,11 +59,12 @@ export function TournamentDetailsPage() {
     cancelRegistration,
     confirmRegistration,
     moveFromWaitlist,
+    setUserPrepay,
     saveTournamentResults,
-    importTournamentResults,
     updateResult,
     deleteResult,
   } = useAdminData()
+  const { success, error } = useToast()
 
   const tournament = getTournamentById(tournamentId)
 
@@ -60,63 +74,144 @@ export function TournamentDetailsPage() {
   )
 
   const [newUserId, setNewUserId] = useState('none')
-  const [notice, setNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [resultsDraft, setResultsDraft] = useState<Record<number, EditableResult>>({})
   const [cancelRegId, setCancelRegId] = useState<number | null>(null)
   const [isSavingTournament, setIsSavingTournament] = useState(false)
   const [isAddingUser, setIsAddingUser] = useState(false)
   const [isSavingResults, setIsSavingResults] = useState(false)
-  const [isImportingResults, setIsImportingResults] = useState(false)
   const [isCancellingRegistration, setIsCancellingRegistration] = useState(false)
   const [pendingRegistrationId, setPendingRegistrationId] = useState<number | null>(null)
   const [pendingResultId, setPendingResultId] = useState<number | null>(null)
 
   // Local form state for tournament fields (no per-keystroke mutations)
   const [localName, setLocalName] = useState('')
-  const [localFormat, setLocalFormat] = useState('')
-  const [localAddress, setLocalAddress] = useState('')
-  const [localLocationHint, setLocalLocationHint] = useState('')
   const [localDate, setLocalDate] = useState('')
   const [localSeriesId, setLocalSeriesId] = useState('none')
   const [localMedalId, setLocalMedalId] = useState('none')
-  const [localMaxPlayers, setLocalMaxPlayers] = useState(0)
+  const [localMaxPlayersInput, setLocalMaxPlayersInput] = useState('')
   const [localStatus, setLocalStatus] = useState<TournamentStatus>('upcoming')
   const [localImageUrl, setLocalImageUrl] = useState('')
   const [localImageDataUrl, setLocalImageDataUrl] = useState<string | null>(null)
   const [isImageLoading, setIsImageLoading] = useState(false)
-  const [localPrizeInfo, setLocalPrizeInfo] = useState('')
   const [localIsSignificant, setLocalIsSignificant] = useState(false)
-  const [localDescription, setLocalDescription] = useState('')
+  const [descriptionBlocks, setDescriptionBlocks] = useState<TournamentDescriptionBlock[]>([])
+  const [bonusItems, setBonusItems] = useState<string[]>([''])
   const [formDirty, setFormDirty] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const lastGeneratedPrizeRef = useRef<string | null>(null)
 
   // Sync local state from server data
   useEffect(() => {
     if (tournament && !formDirty) {
       setLocalName(tournament.name)
-      setLocalFormat(tournament.format)
-      setLocalAddress(tournament.address)
-      setLocalLocationHint(tournament.locationHint)
       setLocalDate(formatDateTimeInput(tournament.date))
       setLocalSeriesId(tournament.seriesId ? String(tournament.seriesId) : 'none')
       setLocalMedalId(tournament.medalId ? String(tournament.medalId) : 'none')
-      setLocalMaxPlayers(tournament.maxPlayers)
+      setLocalMaxPlayersInput(String(tournament.maxPlayers))
       setLocalStatus(tournament.status)
       setLocalImageUrl(tournament.imageUrl ?? '')
       setLocalImageDataUrl(null)
-      setLocalPrizeInfo(tournament.prizeInfo)
       setLocalIsSignificant(tournament.isSignificant)
-      setLocalDescription(tournament.description)
+      setDescriptionBlocks(parseTournamentDescription(tournament.description))
+      setBonusItems(tournament.prizeInfo?.trim() ? [tournament.prizeInfo] : [''])
     }
   }, [tournament, formDirty])
 
-  // Auto-dismiss notices
+  const medalOptions = [
+    { value: 'none', label: 'Без медали' },
+    ...state.achievements
+      .filter((item) => item.iconUrl || item.inactiveIconUrl)
+      .map((item) => ({
+        value: String(item.id),
+        label: item.category ? `${item.name} (${item.category})` : item.name,
+      })),
+  ]
+
+  const selectedMedalLabel =
+    medalOptions.find((item) => item.value === localMedalId)?.label ?? ''
+
+  const existingCoverOptions = useMemo(() => {
+    const seen = new Set<string>()
+
+    return [...state.tournaments]
+      .sort(
+        (left, right) =>
+          new Date(right.createdAt).valueOf() - new Date(left.createdAt).valueOf(),
+      )
+      .flatMap((item) => {
+        const value = item.imageUrl?.trim()
+
+        if (!value || seen.has(value)) {
+          return []
+        }
+
+        seen.add(value)
+
+        return [
+          {
+            imageUrl: value,
+            label: item.name,
+          },
+        ]
+      })
+  }, [state.tournaments])
+
   useEffect(() => {
-    if (notice) {
-      const timer = setTimeout(() => setNotice(null), 4000)
-      return () => clearTimeout(timer)
-    }
-  }, [notice])
+    const nextAutoValue =
+      localMedalId === 'none' || !selectedMedalLabel
+        ? null
+        : `Медаль победителя: ${selectedMedalLabel}`
+
+    setDescriptionBlocks((currentBlocks) => {
+      const prizeIndex = currentBlocks.findIndex(
+        (block) => block.title.trim() === 'Призы',
+      )
+      const autoValue = lastGeneratedPrizeRef.current
+
+      if (!nextAutoValue) {
+        if (
+          prizeIndex >= 0 &&
+          autoValue !== null &&
+          currentBlocks[prizeIndex]?.items.length === 1 &&
+          currentBlocks[prizeIndex]?.items[0]?.trim() === autoValue
+        ) {
+          lastGeneratedPrizeRef.current = null
+          setFormDirty(true)
+          return currentBlocks.filter((_, index) => index !== prizeIndex)
+        }
+
+        lastGeneratedPrizeRef.current = null
+        return currentBlocks
+      }
+
+      if (prizeIndex < 0) {
+        lastGeneratedPrizeRef.current = nextAutoValue
+        setFormDirty(true)
+        return [...currentBlocks, createDescriptionBlock('Призы', [nextAutoValue])]
+      }
+
+      const prizeBlock = currentBlocks[prizeIndex]
+      const shouldAutofill =
+        prizeBlock.items.every((item) => !item.trim()) ||
+        (autoValue !== null &&
+          prizeBlock.items.length === 1 &&
+          prizeBlock.items[0]?.trim() === autoValue)
+
+      if (!shouldAutofill) {
+        return currentBlocks
+      }
+
+      const nextBlocks = [...currentBlocks]
+      nextBlocks[prizeIndex] = {
+        ...prizeBlock,
+        title: 'Призы',
+        items: [nextAutoValue],
+      }
+      lastGeneratedPrizeRef.current = nextAutoValue
+      setFormDirty(true)
+      return nextBlocks
+    })
+  }, [localMedalId, selectedMedalLabel])
 
   if (!tournament) {
     return (
@@ -162,18 +257,16 @@ export function TournamentDetailsPage() {
   )
 
   const availableUsers = state.users.filter((item) => !activeParticipantIds.has(item.id))
-  const medalOptions = [
-    { value: 'none', label: 'Без медали' },
-    ...state.achievements
-      .filter((item) => item.iconUrl || item.inactiveIconUrl)
-      .map((item) => ({
-        value: String(item.id),
-        label: item.category ? `${item.name} (${item.category})` : item.name,
-      })),
-  ]
 
   const handleSaveTournament = async () => {
     if (isSavingTournament) {
+      return
+    }
+
+    const parsedMaxPlayers = Number.parseInt(localMaxPlayersInput, 10)
+
+    if (!Number.isFinite(parsedMaxPlayers) || parsedMaxPlayers < 1) {
+      error('Укажи корректное число участников')
       return
     }
 
@@ -181,26 +274,25 @@ export function TournamentDetailsPage() {
     const newMedalId = localMedalId === 'none' ? null : Number(localMedalId)
     const finalImageUrl =
       localImageDataUrl ?? (localImageUrl.trim() ? localImageUrl.trim() : null)
+    const description = serializeTournamentDescription(descriptionBlocks)
+    const firstBonusLine = bonusItems.map((item) => item.trim()).find(Boolean) ?? ''
 
     setIsSavingTournament(true)
     const updated = await updateTournament(tournament.id, {
       name: localName,
-      format: localFormat,
-      address: localAddress,
-      locationHint: localLocationHint,
-      date: new Date(localDate).toISOString(),
+      date: localDate,
       seriesId: newSeriesId,
       medalId: newMedalId,
-      maxPlayers: localMaxPlayers,
+      maxPlayers: parsedMaxPlayers,
       imageUrl: finalImageUrl,
       isSignificant: localIsSignificant,
-      prizeInfo: localPrizeInfo,
-      description: localDescription,
+      prizeInfo: firstBonusLine,
+      description,
     })
 
     if (!updated) {
       setIsSavingTournament(false)
-      setNotice({ text: 'Не удалось сохранить поля турнира', type: 'error' })
+      error('Не удалось сохранить поля турнира')
       return
     }
 
@@ -209,36 +301,38 @@ export function TournamentDetailsPage() {
 
       if (!statusUpdated) {
         setIsSavingTournament(false)
-        setNotice({ text: 'Поля сохранены, но статус турнира обновить не удалось', type: 'error' })
+        error('Поля сохранены, но статус турнира обновить не удалось')
         return
       }
     }
 
     setIsSavingTournament(false)
     setFormDirty(false)
-    setNotice({ text: 'Поля турнира сохранены', type: 'success' })
+    success('Изменения применены')
   }
 
-  const handleAddUser = async () => {
+  const handleAddUser = async (userIdValue?: string) => {
     if (isAddingUser) {
       return
     }
 
-    if (newUserId === 'none') {
+    const nextUserId = userIdValue ?? newUserId
+
+    if (nextUserId === 'none') {
       return
     }
 
     setIsAddingUser(true)
-    const added = await addRegistration(tournament.id, Number(newUserId))
+    const added = await addRegistration(tournament.id, Number(nextUserId))
     setIsAddingUser(false)
 
     if (!added) {
-      setNotice({ text: 'Не удалось добавить пользователя в турнир', type: 'error' })
+      error('Не удалось добавить пользователя в турнир')
       return
     }
 
     setNewUserId('none')
-    setNotice({ text: 'Пользователь добавлен в список участников', type: 'success' })
+    success('Пользователь добавлен в список участников')
   }
 
   const handleSaveResults = async () => {
@@ -267,34 +361,11 @@ export function TournamentDetailsPage() {
     setIsSavingResults(false)
 
     if (!saved) {
-      setNotice({ text: 'Не удалось сохранить результаты', type: 'error' })
+      error('Не удалось сохранить результаты')
       return
     }
 
-    setNotice({ text: 'Результаты сохранены', type: 'success' })
-  }
-
-  const handleImportResults = async (nicknames: string[]) => {
-    if (isImportingResults) {
-      return
-    }
-
-    setIsImportingResults(true)
-    const { unresolved, errorMessage } = await importTournamentResults(tournament.id, nicknames)
-    setIsImportingResults(false)
-
-    if (errorMessage) {
-      setNotice({ text: errorMessage, type: 'error' })
-      return
-    }
-
-    if (unresolved.length > 0) {
-      setNotice({ text: `Не найдены ники: ${unresolved.join(', ')}`, type: 'error' })
-      return
-    }
-
-    setResultsDraft({})
-    setNotice({ text: 'Результаты импортированы', type: 'success' })
+    success('Изменения применены')
   }
 
   const handleConfirmRegistration = async (registrationId: number) => {
@@ -306,11 +377,12 @@ export function TournamentDetailsPage() {
     const confirmed = await confirmRegistration(registrationId)
     setPendingRegistrationId(null)
 
-    setNotice(
-      confirmed
-        ? { text: 'Участие подтверждено', type: 'success' }
-        : { text: 'Не удалось подтвердить участие', type: 'error' },
-    )
+    if (confirmed) {
+      success('Изменения применены')
+      return
+    }
+
+    error('Не удалось подтвердить участие')
   }
 
   const handleMoveFromWaitlist = async (registrationId: number) => {
@@ -322,11 +394,12 @@ export function TournamentDetailsPage() {
     const moved = await moveFromWaitlist(registrationId)
     setPendingRegistrationId(null)
 
-    setNotice(
-      moved
-        ? { text: 'Игрок переведён из листа ожидания', type: 'success' }
-        : { text: 'Не удалось перевести игрока из листа ожидания', type: 'error' },
-    )
+    if (moved) {
+      success('Изменения применены')
+      return
+    }
+
+    error('Не удалось перевести игрока из листа ожидания')
   }
 
   const handleUpdateResult = async (
@@ -341,11 +414,12 @@ export function TournamentDetailsPage() {
     const updated = await updateResult(resultId, values)
     setPendingResultId(null)
 
-    setNotice(
-      updated
-        ? { text: 'Результат обновлён', type: 'success' }
-        : { text: 'Не удалось обновить результат', type: 'error' },
-    )
+    if (updated) {
+      success('Изменения применены')
+      return
+    }
+
+    error('Не удалось обновить результат')
   }
 
   const handleDeleteResult = async (resultId: number) => {
@@ -357,11 +431,12 @@ export function TournamentDetailsPage() {
     const deleted = await deleteResult(resultId)
     setPendingResultId(null)
 
-    setNotice(
-      deleted
-        ? { text: 'Результат удалён', type: 'success' }
-        : { text: 'Не удалось удалить результат', type: 'error' },
-    )
+    if (deleted) {
+      success('Изменения применены')
+      return
+    }
+
+    error('Не удалось удалить результат')
   }
 
   const handleCancelRegistration = async () => {
@@ -374,19 +449,30 @@ export function TournamentDetailsPage() {
     setIsCancellingRegistration(false)
 
     if (!cancelled) {
-      setNotice({ text: 'Не удалось отменить регистрацию', type: 'error' })
+      error('Не удалось отменить регистрацию')
       return
     }
 
     setCancelRegId(null)
-    setNotice({ text: 'Регистрация отменена', type: 'success' })
+    success('Изменения применены')
   }
-
-  const ratingRows = ratingsBySeriesId[(tournament.seriesId ?? activeSeries?.id) ?? 0] ?? []
 
   const markDirty = () => { if (!formDirty) setFormDirty(true) }
   const previewImage =
     localImageDataUrl ?? (localImageUrl.trim() ? localImageUrl.trim() : null)
+  const previewDateLabel = localDate
+    ? new Intl.DateTimeFormat('ru-RU', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(localDate))
+    : new Intl.DateTimeFormat('ru-RU', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date())
 
   const handleImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -403,7 +489,7 @@ export function TournamentDetailsPage() {
       setLocalImageUrl('')
       markDirty()
     } catch {
-      setNotice({ text: 'Не удалось обработать изображение', type: 'error' })
+      error('Не удалось обработать изображение')
     } finally {
       setIsImageLoading(false)
 
@@ -416,6 +502,57 @@ export function TournamentDetailsPage() {
   const handleClearImage = () => {
     setLocalImageDataUrl(null)
     setLocalImageUrl('')
+    markDirty()
+  }
+
+  const handleSelectUser = (value: string) => {
+    setNewUserId(value)
+
+    if (value !== 'none') {
+      void handleAddUser(value)
+    }
+  }
+
+  const handleClearPrepay = async (userId: number) => {
+    if (pendingRegistrationId !== null) {
+      return
+    }
+
+    setPendingRegistrationId(userId)
+    const cleared = await setUserPrepay(userId, false)
+    setPendingRegistrationId(null)
+
+    if (cleared) {
+      success('Изменения применены')
+      return
+    }
+
+    error('Не удалось убрать пользователя из листа предоплаты')
+  }
+
+  const handleSetPrepay = async (userId: number, login: string) => {
+    if (pendingRegistrationId !== null) {
+      return
+    }
+
+    setPendingRegistrationId(userId)
+    const applied = await setUserPrepay(
+      userId,
+      true,
+      getDefaultPrepayMessage(login || `Игрок ${userId}`),
+    )
+    setPendingRegistrationId(null)
+
+    if (applied) {
+      success('Изменения применены')
+      return
+    }
+
+    error('Не удалось добавить пользователя в лист предоплаты')
+  }
+
+  const handleMaxPlayersChange = (value: string) => {
+    setLocalMaxPlayersInput(value.replace(/\D+/g, ''))
     markDirty()
   }
 
@@ -443,28 +580,11 @@ export function TournamentDetailsPage() {
           />
 
           <FormField
-            label="Формат"
-            inputProps={{
-              value: localFormat,
-              onChange: (event) => { setLocalFormat(event.target.value); markDirty() },
-            }}
-          />
-
-          <FormField
             label="Дата"
             inputProps={{
               type: 'datetime-local',
               value: localDate,
               onChange: (event) => { setLocalDate(event.target.value); markDirty() },
-            }}
-          />
-
-          <FormField
-            label="Адрес"
-            inputProps={{
-              value: localAddress,
-              onChange: (event) => { setLocalAddress(event.target.value); markDirty() },
-              placeholder: 'Набережная адмиралтейского канала 27',
             }}
           />
 
@@ -484,19 +604,12 @@ export function TournamentDetailsPage() {
           <FormField
             label="Макс. игроков"
             inputProps={{
-              type: 'number',
-              min: 1,
-              value: localMaxPlayers,
-              onChange: (event) => { setLocalMaxPlayers(Number(event.target.value || 1)); markDirty() },
-            }}
-          />
-
-          <FormField
-            label="Подсказка по адресу"
-            inputProps={{
-              value: localLocationHint,
-              onChange: (event) => { setLocalLocationHint(event.target.value); markDirty() },
-              placeholder: 'Ориентир, вход со двора, этаж...',
+              type: 'text',
+              inputMode: 'numeric',
+              pattern: '[0-9]*',
+              value: localMaxPlayersInput,
+              onChange: (event) => { handleMaxPlayersChange(event.target.value) },
+              placeholder: '100',
             }}
           />
 
@@ -532,10 +645,17 @@ export function TournamentDetailsPage() {
         </label>
 
         <FormField
-          label="Призы"
+          label="Image URL (опционально)"
           inputProps={{
-            value: localPrizeInfo,
-            onChange: (event) => { setLocalPrizeInfo(event.target.value); markDirty() },
+            value: localImageUrl,
+            onChange: (event) => {
+              setLocalImageUrl(event.target.value)
+              if (localImageDataUrl) {
+                setLocalImageDataUrl(null)
+              }
+              markDirty()
+            },
+            placeholder: 'https://...',
           }}
         />
 
@@ -543,20 +663,10 @@ export function TournamentDetailsPage() {
           <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
             Фото турнира
           </span>
-          <FormField
-            label="Image URL (опционально)"
-            inputProps={{
-              value: localImageUrl,
-              onChange: (event) => {
-                setLocalImageUrl(event.target.value)
-                if (localImageDataUrl) {
-                  setLocalImageDataUrl(null)
-                }
-                markDirty()
-              },
-              placeholder: 'https://...',
-            }}
-          />
+          <p className="text-sm text-[var(--text-muted)]">
+            Картинка грузится как квадрат 1:1. Ниже показываем два реальных
+            превью из приложения.
+          </p>
 
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -585,24 +695,123 @@ export function TournamentDetailsPage() {
             )}
           </div>
 
-          {previewImage && (
-            <img
-              src={previewImage}
-              alt="Превью турнира"
-              className="h-36 w-full max-w-sm rounded-lg border border-[var(--line)] object-cover"
-            />
-          )}
+          {existingCoverOptions.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-sm text-[var(--text-muted)]">
+                Или выбрать из уже загруженных обложек:
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {existingCoverOptions.map((cover) => {
+                  const isSelected = previewImage === cover.imageUrl
+
+                  return (
+                    <button
+                      key={cover.imageUrl}
+                      type="button"
+                      onClick={() => {
+                        setLocalImageUrl(cover.imageUrl)
+                        setLocalImageDataUrl(null)
+                        markDirty()
+                      }}
+                      className={`overflow-hidden rounded-lg border text-left transition ${
+                        isSelected
+                          ? 'border-[var(--accent)] ring-2 ring-[var(--accent-soft)]'
+                          : 'border-[var(--line)] hover:border-[var(--accent)]'
+                      }`}
+                    >
+                      <img
+                        src={cover.imageUrl}
+                        alt={cover.label}
+                        className="h-28 w-full object-cover"
+                      />
+                      <div className="border-t border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--text-primary)]">
+                        <span className="line-clamp-2">{cover.label}</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
 
-        <FormField
-          as="textarea"
-          label="Описание"
-          textareaProps={{
-            rows: 4,
-            value: localDescription,
-            onChange: (event) => { setLocalDescription(event.target.value); markDirty() },
+        <TournamentDescriptionEditor
+          blocks={descriptionBlocks}
+          onChange={(nextBlocks) => {
+            setDescriptionBlocks(nextBlocks)
+            markDirty()
           }}
         />
+
+        <section className="space-y-3 rounded-lg border border-[var(--line)] bg-[var(--bg-surface-muted)] p-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+              Бонусы
+            </h2>
+            <p className="text-sm text-[var(--text-muted)]">
+              Этот текст показывается в карточке турнира и в hero-блоке
+              экрана турнира. Призы от медали добавляются в описание выше.
+            </p>
+          </div>
+
+          {bonusItems.map((item, index) => (
+            <div key={`bonus-${index}`} className="flex gap-2">
+              <input
+                value={item}
+                onChange={(event) => {
+                  const next = [...bonusItems]
+                  next[index] = event.target.value
+                  setBonusItems(next)
+                  markDirty()
+                }}
+                placeholder="Например: Топ 10 получают бонус"
+                className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setBonusItems((current) =>
+                    current.length > 1
+                      ? current.filter((_, itemIndex) => itemIndex !== index)
+                      : [''],
+                  )
+                  markDirty()
+                }}
+                className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium text-[var(--text-secondary)] transition hover:bg-gray-50"
+              >
+                −
+              </button>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={() => {
+              setBonusItems((current) => [...current, ''])
+              markDirty()
+            }}
+            className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition hover:bg-gray-50"
+          >
+            Добавить пункт
+          </button>
+        </section>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+        <TournamentCardPreview
+          name={localName}
+          dateLabel={previewDateLabel}
+          seatsLabel={`0/${localMaxPlayersInput || 0}`}
+          imageUrl={previewImage}
+        />
+        <TournamentDetailPreview
+          name={localName}
+          dateLabel={previewDateLabel}
+          seatsLabel={`${localMaxPlayersInput || 0} мест`}
+          bonusLabel={bonusItems.map((item) => item.trim()).find(Boolean) ?? ''}
+          imageUrl={previewImage}
+          sections={descriptionBlocks}
+          />
+        </div>
 
         <button
           type="button"
@@ -630,18 +839,10 @@ export function TournamentDetailsPage() {
                   })),
                 ]}
                 value={newUserId}
-                onChange={setNewUserId}
+                onChange={handleSelectUser}
                 placeholder="Поиск по нику или имени..."
               />
             </div>
-            <button
-              type="button"
-              onClick={() => void handleAddUser()}
-              disabled={isAddingUser}
-              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isAddingUser ? 'Добавляем...' : 'Добавить'}
-            </button>
           </div>
         </div>
 
@@ -653,11 +854,11 @@ export function TournamentDetailsPage() {
             { header: 'Ник', render: (row) => row.user.login },
             { header: 'Имя', render: (row) => row.user.name },
             {
-              header: 'Статус',
+              header: 'Регистрация',
               render: (row) => <StatusBadge status={row.registration.status} />,
             },
             {
-              header: 'Предоплата',
+              header: 'Подтверждение',
               render: (row) => {
                 if (row.registration.confirmedAt) {
                   return (
@@ -681,6 +882,25 @@ export function TournamentDetailsPage() {
               header: '',
               render: (row) => (
                 <div className="flex flex-wrap gap-1">
+                  {row.user.isPrepayRequired ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleClearPrepay(row.user.id)}
+                      disabled={pendingRegistrationId !== null}
+                      className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {pendingRegistrationId === row.user.id ? 'Убираем...' : 'Убрать из предоплаты'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleSetPrepay(row.user.id, row.user.login)}
+                      disabled={pendingRegistrationId !== null}
+                      className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {pendingRegistrationId === row.user.id ? 'Добавляем...' : 'В предоплату'}
+                    </button>
+                  )}
                   {row.registration.status === 'waitlist' ? (
                     <button
                       type="button"
@@ -724,6 +944,7 @@ export function TournamentDetailsPage() {
                   type="number"
                   min={0}
                   value={getResultDraft(row.user.id, row.result).place}
+                  onFocus={replaceLeadingZeroOnFocus}
                   onChange={(event) =>
                     setResultField(
                       row.user.id,
@@ -760,6 +981,7 @@ export function TournamentDetailsPage() {
                 <input
                   type="number"
                   value={getResultDraft(row.user.id, row.result).points}
+                  onFocus={replaceLeadingZeroOnFocus}
                   onChange={(event) =>
                     setResultField(
                       row.user.id,
@@ -778,6 +1000,7 @@ export function TournamentDetailsPage() {
                 <input
                   type="number"
                   value={getResultDraft(row.user.id, row.result).bounty}
+                  onFocus={replaceLeadingZeroOnFocus}
                   onChange={(event) =>
                     setResultField(
                       row.user.id,
@@ -841,41 +1064,6 @@ export function TournamentDetailsPage() {
           {isSavingResults ? 'Сохраняем...' : 'Сохранить результаты'}
         </button>
       </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <ResultsImporter onSave={handleImportResults} pending={isImportingResults} />
-
-        <div className="space-y-3 rounded-xl border border-[var(--line)] bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold">Рейтинг серии</h3>
-          <p className="text-sm text-[var(--text-muted)]">
-            Серия: {getSeriesById(tournament.seriesId)?.name ?? activeSeries?.name ?? 'не выбрана'}
-          </p>
-
-          <DataTable
-            rows={ratingRows.slice(0, 10)}
-            getRowKey={(row) => row.userId}
-            emptyLabel="Пока нет данных рейтинга"
-            columns={[
-              { header: '#', render: (row) => row.rank },
-              { header: 'Игрок', render: (row) => row.login },
-              { header: 'Очки', render: (row) => row.totalPoints },
-              { header: 'Баунти', render: (row) => row.totalBounty },
-            ]}
-          />
-        </div>
-      </section>
-
-      {notice ? (
-        <div
-          className={`rounded-xl border p-3 text-sm ${
-            notice.type === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          }`}
-        >
-          {notice.text}
-        </div>
-      ) : null}
 
       <ConfirmDialog
         open={cancelRegId !== null}

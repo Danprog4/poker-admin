@@ -4,6 +4,7 @@
 :root {
   --bg-canvas: #f8f9fc;
   --bg-surface: #ffffff;
+  --bg-surface-muted: #f6f7fb;
   --bg-sidebar: #111827;
   --text-primary: #111827;
   --text-secondary: #4b5563;
@@ -44,6 +45,11 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  margin: 0;
 }
 
 a {

@@ -3,16 +3,17 @@ import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { AdminLayout } from "./components/AdminLayout";
 import type { AdminSession } from "./lib/types";
 import { trpc } from "./lib/trpc";
-import { AdjustmentsPage } from "./pages/AdjustmentsPage";
 import { BroadcastDetailsPage } from "./pages/BroadcastDetailsPage";
 import { BroadcastNewPage } from "./pages/BroadcastNewPage";
 import { BroadcastsPage } from "./pages/BroadcastsPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
+import { MedalDetailsPage } from "./pages/MedalDetailsPage";
 import { MedalsPage } from "./pages/MedalsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { SeriesPage } from "./pages/SeriesPage";
+import { StatusDetailsPage } from "./pages/StatusDetailsPage";
 import { StatusesPage } from "./pages/StatusesPage";
 import { TournamentDetailsPage } from "./pages/TournamentDetailsPage";
 import { TournamentNewPage } from "./pages/TournamentNewPage";
@@ -94,8 +95,9 @@ export default function App() {
         <Route path="/users" element={<UsersPage />} />
         <Route path="/users/:id" element={<UserDetailsPage />} />
         <Route path="/statuses" element={<StatusesPage />} />
+        <Route path="/statuses/:id" element={<StatusDetailsPage />} />
         <Route path="/medals" element={<MedalsPage />} />
-        <Route path="/adjustments" element={<AdjustmentsPage />} />
+        <Route path="/medals/:id" element={<MedalDetailsPage />} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/broadcasts/new" element={<BroadcastNewPage />} />
         <Route path="/broadcasts/:id" element={<BroadcastDetailsPage />} />

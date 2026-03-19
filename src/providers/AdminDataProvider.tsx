@@ -28,6 +28,7 @@ import type {
   UpdateTournamentInput,
   UserAchievement,
 } from '../lib/admin-models'
+import { dateInputToIso, dateTimeInputToIso } from '../lib/date'
 import { trpc } from '../lib/trpc'
 
 const EMPTY_STATE: AdminDataState = {
@@ -397,7 +398,11 @@ type AdminDataContextValue = {
   updateSeries: (seriesId: number, input: Partial<CreateSeriesInput>) => Promise<boolean>
   activateSeries: (seriesId: number) => Promise<boolean>
   deleteSeries: (seriesId: number) => Promise<boolean>
-  setUserPrepay: (userId: number, value: boolean) => Promise<boolean>
+  setUserPrepay: (
+    userId: number,
+    value: boolean,
+    message?: string,
+  ) => Promise<boolean>
   setUserStatus: (userId: number, statusId: number | null) => Promise<boolean>
   updateUserLogin: (userId: number, login: string) => Promise<boolean>
   createAdjustment: (input: CreateAdjustmentInput) => Promise<boolean>
@@ -768,7 +773,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
           format: input.format,
           address: input.address,
           locationHint: input.locationHint,
-          date: new Date(input.date).toISOString(),
+          date: dateTimeInputToIso(input.date),
           maxPlayers: input.maxPlayers,
           seriesId: input.seriesId,
           medalId: input.medalId,
@@ -789,7 +794,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
         updateTournamentMutation.mutateAsync({
           tournamentId,
           ...input,
-          date: input.date ? new Date(input.date).toISOString() : undefined,
+          date: input.date ? dateTimeInputToIso(input.date) : undefined,
         }),
       )
 
@@ -952,8 +957,8 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       const result = await runAndRefresh(() =>
         createSeriesMutation.mutateAsync({
           name: input.name,
-          startDate: new Date(input.startDate).toISOString(),
-          endDate: new Date(input.endDate).toISOString(),
+          startDate: dateInputToIso(input.startDate),
+          endDate: dateInputToIso(input.endDate),
         }),
       )
 
@@ -968,10 +973,8 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
         updateSeriesMutation.mutateAsync({
           seriesId,
           name: input.name,
-          startDate: input.startDate
-            ? new Date(input.startDate).toISOString()
-            : undefined,
-          endDate: input.endDate ? new Date(input.endDate).toISOString() : undefined,
+          startDate: input.startDate ? dateInputToIso(input.startDate) : undefined,
+          endDate: input.endDate ? dateInputToIso(input.endDate) : undefined,
         }),
       )
 
@@ -1003,9 +1006,13 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
   )
 
   const setUserPrepay = useCallback(
-    async (userId: number, value: boolean) => {
+    async (userId: number, value: boolean, message?: string) => {
       const result = await runAndRefresh(() =>
-        setUserPrepayMutation.mutateAsync({ userId, isPrepayRequired: value }),
+        setUserPrepayMutation.mutateAsync({
+          userId,
+          isPrepayRequired: value,
+          message,
+        }),
       )
 
       return result !== null

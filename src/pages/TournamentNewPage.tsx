@@ -1,21 +1,33 @@
-import { useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { FormField } from '../components/FormField'
+import { TournamentDescriptionEditor } from '../components/TournamentDescriptionEditor'
+import {
+  TournamentCardPreview,
+  TournamentDetailPreview,
+} from '../components/TournamentPreview'
 import { fileToDataUrl } from '../lib/imageUpload'
+import {
+  createDescriptionBlock,
+  serializeTournamentDescription,
+  type TournamentDescriptionBlock,
+} from '../lib/tournament-description'
+import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
+
+const DEFAULT_TOURNAMENT_ADDRESS = 'Набережная адмиралтейского канала 27'
 
 export function TournamentNewPage() {
   const navigate = useNavigate()
   const { state, createTournament, activeSeries } = useAdminData()
+  const { error, success } = useToast()
 
   const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [format, setFormat] = useState('NLH')
-  const [address, setAddress] = useState('')
-  const [locationHint, setLocationHint] = useState('')
+  const [descriptionBlocks, setDescriptionBlocks] = useState<TournamentDescriptionBlock[]>([])
+  const [bonusItems, setBonusItems] = useState<string[]>([''])
   const [date, setDate] = useState('')
-  const [maxPlayers, setMaxPlayers] = useState(100)
+  const [maxPlayersInput, setMaxPlayersInput] = useState('100')
   const [seriesId, setSeriesId] = useState<string>(
     activeSeries ? String(activeSeries.id) : 'none',
   )
@@ -23,11 +35,10 @@ export function TournamentNewPage() {
   const [imageUrl, setImageUrl] = useState('')
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
   const [isImageLoading, setIsImageLoading] = useState(false)
-  const [prizeInfo, setPrizeInfo] = useState('')
   const [isSignificant, setIsSignificant] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errorMessage, setErrorMessage] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const lastGeneratedPrizeRef = useRef<string | null>(null)
 
   const seriesOptions = useMemo(
     () => [
@@ -50,43 +61,138 @@ export function TournamentNewPage() {
     [state.achievements],
   )
 
+  const selectedMedalLabel = useMemo(
+    () => medalOptions.find((item) => item.value === medalId)?.label ?? '',
+    [medalId, medalOptions],
+  )
+
+  const existingCoverOptions = useMemo(() => {
+    const seen = new Set<string>()
+
+    return [...state.tournaments]
+      .sort(
+        (left, right) =>
+          new Date(right.createdAt).valueOf() - new Date(left.createdAt).valueOf(),
+      )
+      .flatMap((tournament) => {
+        const value = tournament.imageUrl?.trim()
+
+        if (!value || seen.has(value)) {
+          return []
+        }
+
+        seen.add(value)
+
+        return [
+          {
+            imageUrl: value,
+            label: tournament.name,
+          },
+        ]
+      })
+  }, [state.tournaments])
+
+  useEffect(() => {
+    const nextAutoValue =
+      medalId === 'none' || !selectedMedalLabel
+        ? null
+        : `Медаль победителя: ${selectedMedalLabel}`
+
+    setDescriptionBlocks((currentBlocks) => {
+      const prizeIndex = currentBlocks.findIndex(
+        (block) => block.title.trim() === 'Призы',
+      )
+      const autoValue = lastGeneratedPrizeRef.current
+
+      if (!nextAutoValue) {
+        if (
+          prizeIndex >= 0 &&
+          autoValue !== null &&
+          currentBlocks[prizeIndex]?.items.length === 1 &&
+          currentBlocks[prizeIndex]?.items[0]?.trim() === autoValue
+        ) {
+          lastGeneratedPrizeRef.current = null
+          return currentBlocks.filter((_, index) => index !== prizeIndex)
+        }
+
+        lastGeneratedPrizeRef.current = null
+        return currentBlocks
+      }
+
+      if (prizeIndex < 0) {
+        lastGeneratedPrizeRef.current = nextAutoValue
+        return [...currentBlocks, createDescriptionBlock('Призы', [nextAutoValue])]
+      }
+
+      const prizeBlock = currentBlocks[prizeIndex]
+      const shouldAutofill =
+        prizeBlock.items.every((item) => !item.trim()) ||
+        (autoValue !== null &&
+          prizeBlock.items.length === 1 &&
+          prizeBlock.items[0]?.trim() === autoValue)
+
+      if (!shouldAutofill) {
+        return currentBlocks
+      }
+
+      const nextBlocks = [...currentBlocks]
+      nextBlocks[prizeIndex] = {
+        ...prizeBlock,
+        title: 'Призы',
+        items: [nextAutoValue],
+      }
+      lastGeneratedPrizeRef.current = nextAutoValue
+      return nextBlocks
+    })
+  }, [medalId, selectedMedalLabel])
+
   const handleSubmit = async () => {
     if (isSubmitting) {
       return
     }
 
-    if (!name.trim() || !date) {
-      setErrorMessage('Заполни название и дату турнира')
+    const parsedMaxPlayers = Number.parseInt(maxPlayersInput, 10)
+
+    if (!name.trim() || !date || !Number.isFinite(parsedMaxPlayers) || parsedMaxPlayers < 1) {
+      error('Заполни название, дату и корректное число участников')
       return
     }
 
     const finalImageUrl = imageDataUrl ?? (imageUrl.trim() ? imageUrl.trim() : null)
-    setErrorMessage('')
     setIsSubmitting(true)
+
+    const description = serializeTournamentDescription(descriptionBlocks)
+    const firstBonusLine = bonusItems.map((item) => item.trim()).find(Boolean) ?? ''
 
     const created = await createTournament({
       name: name.trim(),
-      description: description.trim(),
-      format: format.trim(),
-      address: address.trim(),
-      locationHint: locationHint.trim(),
-      date: new Date(date).toISOString(),
-      maxPlayers,
+      description,
+      format: '',
+      address: DEFAULT_TOURNAMENT_ADDRESS,
+      locationHint: '',
+      date,
+      maxPlayers: parsedMaxPlayers,
       seriesId: seriesId === 'none' ? null : Number(seriesId),
       medalId: medalId === 'none' ? null : Number(medalId),
       imageUrl: finalImageUrl,
       isSignificant,
-      prizeInfo: prizeInfo.trim(),
+      prizeInfo: firstBonusLine,
     })
 
     setIsSubmitting(false)
 
     if (!created) {
-      setErrorMessage('Не удалось создать турнир. Попробуй ещё раз.')
+      error('Не удалось создать турнир. Попробуй ещё раз.')
       return
     }
 
+    success('Турнир создан')
     navigate('/tournaments')
+  }
+
+  const handleMaxPlayersChange = (value: string) => {
+    const normalized = value.replace(/\D+/g, '')
+    setMaxPlayersInput(normalized)
   }
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -96,7 +202,6 @@ export function TournamentNewPage() {
       return
     }
 
-    setErrorMessage('')
     setIsImageLoading(true)
 
     try {
@@ -104,7 +209,7 @@ export function TournamentNewPage() {
       setImageDataUrl(dataUrl)
       setImageUrl('')
     } catch {
-      setErrorMessage('Не удалось обработать выбранное изображение')
+      error('Не удалось обработать выбранное изображение')
     } finally {
       setIsImageLoading(false)
 
@@ -120,7 +225,19 @@ export function TournamentNewPage() {
   }
 
   const previewImage = imageDataUrl ?? (imageUrl.trim() ? imageUrl.trim() : null)
-
+  const previewDateLabel = date
+    ? new Intl.DateTimeFormat('ru-RU', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date(date))
+    : new Intl.DateTimeFormat('ru-RU', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(new Date())
   return (
     <div className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm">
       <h1 className="font-['Space_Grotesk'] text-2xl font-bold">Новый турнир</h1>
@@ -155,39 +272,14 @@ export function TournamentNewPage() {
         />
 
         <FormField
-          label="Адрес"
-          inputProps={{
-            value: address,
-            onChange: (event) => setAddress(event.target.value),
-            placeholder: 'Набережная адмиралтейского канала 27',
-          }}
-        />
-
-        <FormField
           label="Макс. игроков"
           inputProps={{
-            type: 'number',
-            min: 1,
-            value: maxPlayers,
-            onChange: (event) => setMaxPlayers(Number(event.target.value || 1)),
-          }}
-        />
-
-        <FormField
-          label="Формат"
-          inputProps={{
-            value: format,
-            onChange: (event) => setFormat(event.target.value),
-            placeholder: 'NLH Knockout',
-          }}
-        />
-
-        <FormField
-          label="Подсказка по адресу"
-          inputProps={{
-            value: locationHint,
-            onChange: (event) => setLocationHint(event.target.value),
-            placeholder: 'Ориентир, вход со двора, этаж...',
+            type: 'text',
+            inputMode: 'numeric',
+            pattern: '[0-9]*',
+            value: maxPlayersInput,
+            onChange: (event) => handleMaxPlayersChange(event.target.value),
+            placeholder: '100',
           }}
         />
 
@@ -230,6 +322,10 @@ export function TournamentNewPage() {
         <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
           Фото турнира
         </span>
+        <p className="text-sm text-[var(--text-muted)]">
+          Лучше использовать квадратное изображение 1:1. Ниже сразу показываем,
+          как оно ляжет в карточку и на экран турнира в приложении.
+        </p>
         <div className="flex flex-wrap items-center gap-2">
           <input
             ref={fileInputRef}
@@ -257,36 +353,114 @@ export function TournamentNewPage() {
           )}
         </div>
 
-        {previewImage && (
-          <img
-            src={previewImage}
-            alt="Превью турнира"
-            className="h-36 w-full max-w-sm rounded-lg border border-[var(--line)] object-cover"
-          />
-        )}
+        {existingCoverOptions.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-sm text-[var(--text-muted)]">
+              Или выбрать из уже загруженных обложек:
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {existingCoverOptions.map((cover) => {
+                const isSelected = previewImage === cover.imageUrl
+
+                return (
+                  <button
+                    key={cover.imageUrl}
+                    type="button"
+                    onClick={() => {
+                      setImageUrl(cover.imageUrl)
+                      setImageDataUrl(null)
+                    }}
+                    className={`overflow-hidden rounded-lg border text-left transition ${
+                      isSelected
+                        ? 'border-[var(--accent)] ring-2 ring-[var(--accent-soft)]'
+                        : 'border-[var(--line)] hover:border-[var(--accent)]'
+                    }`}
+                  >
+                    <img
+                      src={cover.imageUrl}
+                      alt={cover.label}
+                      className="h-28 w-full object-cover"
+                    />
+                    <div className="border-t border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--text-primary)]">
+                      <span className="line-clamp-2">{cover.label}</span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      <FormField
-        label="Призы"
-        inputProps={{
-          value: prizeInfo,
-          onChange: (event) => setPrizeInfo(event.target.value),
-          placeholder: 'Топ 10 получают бонус',
-        }}
+      <TournamentDescriptionEditor
+        blocks={descriptionBlocks}
+        onChange={setDescriptionBlocks}
       />
 
-      <FormField
-        as="textarea"
-        label="Описание"
-        textareaProps={{
-          rows: 6,
-          value: description,
-          onChange: (event) => setDescription(event.target.value),
-          placeholder: 'Описание турнира',
-        }}
-      />
+      <section className="space-y-3 rounded-lg border border-[var(--line)] bg-[var(--bg-surface-muted)] p-4">
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+            Бонусы
+          </h2>
+          <p className="text-sm text-[var(--text-muted)]">
+            Этот текст показывается в карточке турнира и в hero-блоке
+            экрана турнира. Призы от медали добавляются в описание выше.
+          </p>
+        </div>
 
-      {errorMessage ? <p className="text-sm text-[var(--danger)]">{errorMessage}</p> : null}
+        {bonusItems.map((item, index) => (
+          <div key={`bonus-${index}`} className="flex gap-2">
+            <input
+              value={item}
+              onChange={(event) => {
+                const next = [...bonusItems]
+                next[index] = event.target.value
+                setBonusItems(next)
+              }}
+              placeholder="Например: Топ 10 получают бонус"
+              className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]"
+            />
+            <button
+              type="button"
+              onClick={() =>
+                setBonusItems((current) =>
+                  current.length > 1
+                    ? current.filter((_, itemIndex) => itemIndex !== index)
+                    : [''],
+                )
+              }
+              className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium text-[var(--text-secondary)] transition hover:bg-gray-50"
+            >
+              −
+            </button>
+          </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={() => setBonusItems((current) => [...current, ''])}
+          className="rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition hover:bg-gray-50"
+        >
+          Добавить пункт
+        </button>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <TournamentCardPreview
+          name={name}
+          dateLabel={previewDateLabel}
+          seatsLabel={`0/${maxPlayersInput || 0}`}
+          imageUrl={previewImage}
+        />
+        <TournamentDetailPreview
+          name={name}
+          dateLabel={previewDateLabel}
+          seatsLabel={`${maxPlayersInput || 0} мест`}
+          bonusLabel={bonusItems.map((item) => item.trim()).find(Boolean) ?? ''}
+          imageUrl={previewImage}
+          sections={descriptionBlocks}
+        />
+      </div>
 
       <button
         type="button"

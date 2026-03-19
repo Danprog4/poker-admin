@@ -1,26 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatDateTime } from '../lib/date'
+import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
 
 export function BroadcastsPage() {
   const { state, deleteBroadcast } = useAdminData()
+  const { success, error } = useToast()
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [notice, setNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
-
-  useEffect(() => {
-    if (!notice) {
-      return
-    }
-
-    const timer = setTimeout(() => setNotice(null), 4000)
-    return () => clearTimeout(timer)
-  }, [notice])
 
   const rows = [...state.broadcasts].sort(
     (a, b) => new Date(b.createdAt).valueOf() - new Date(a.createdAt).valueOf(),
@@ -36,12 +28,12 @@ export function BroadcastsPage() {
     setIsDeleting(false)
 
     if (!deleted) {
-      setNotice({ text: 'Не удалось удалить черновик', type: 'error' })
+      error('Не удалось удалить черновик')
       return
     }
 
     setDeleteId(null)
-    setNotice({ text: 'Черновик удалён', type: 'success' })
+    success('Черновик удалён')
   }
 
   return (
@@ -110,18 +102,6 @@ export function BroadcastsPage() {
         onClose={() => setDeleteId(null)}
         onConfirm={() => void handleDelete()}
       />
-
-      {notice ? (
-        <div
-          className={`rounded-xl border p-3 text-sm ${
-            notice.type === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          }`}
-        >
-          {notice.text}
-        </div>
-      ) : null}
     </div>
   )
 }

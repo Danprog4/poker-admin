@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -6,6 +6,7 @@ import { DataTable } from '../components/DataTable'
 import { FormField } from '../components/FormField'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatDateTime } from '../lib/date'
+import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
 
 const statusOptions: Array<{ value: string; label: string }> = [
@@ -16,13 +17,19 @@ const statusOptions: Array<{ value: string; label: string }> = [
   { value: 'cancelled', label: 'Отменённые' },
 ]
 
+const sortOptions: Array<{ value: string; label: string }> = [
+  { value: 'event_date_desc', label: 'Сначала по дате турнира' },
+  { value: 'created_at_desc', label: 'Сначала по дате создания' },
+]
+
 export function TournamentsPage() {
   const { state, getSeriesById, deleteTournament } = useAdminData()
+  const { success, error } = useToast()
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [seriesFilter, setSeriesFilter] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<string>('event_date_desc')
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [notice, setNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
   const rows = useMemo(() => {
     return state.tournaments
@@ -37,17 +44,14 @@ export function TournamentsPage() {
 
         return true
       })
-      .sort((a, b) => new Date(b.date).valueOf() - new Date(a.date).valueOf())
-  }, [seriesFilter, state.tournaments, statusFilter])
+      .sort((a, b) => {
+        if (sortBy === 'created_at_desc') {
+          return new Date(b.createdAt).valueOf() - new Date(a.createdAt).valueOf()
+        }
 
-  useEffect(() => {
-    if (!notice) {
-      return
-    }
-
-    const timer = setTimeout(() => setNotice(null), 4000)
-    return () => clearTimeout(timer)
-  }, [notice])
+        return new Date(b.date).valueOf() - new Date(a.date).valueOf()
+      })
+  }, [seriesFilter, sortBy, state.tournaments, statusFilter])
 
   const handleDelete = async () => {
     if (deleteId === null || isDeleting) {
@@ -59,12 +63,12 @@ export function TournamentsPage() {
     setIsDeleting(false)
 
     if (!deleted) {
-      setNotice({ text: 'Не удалось удалить турнир', type: 'error' })
+      error('Не удалось удалить турнир')
       return
     }
 
     setDeleteId(null)
-    setNotice({ text: 'Турнир удалён', type: 'success' })
+    success('Турнир удалён')
   }
 
   return (
@@ -79,7 +83,7 @@ export function TournamentsPage() {
         </Link>
       </div>
 
-      <div className="grid gap-3 rounded-xl border border-[var(--line)] bg-white p-4 shadow-sm md:grid-cols-2">
+      <div className="grid gap-3 rounded-xl border border-[var(--line)] bg-white p-4 shadow-sm md:grid-cols-3">
         <FormField
           as="select"
           label="Фильтр по статусу"
@@ -100,6 +104,16 @@ export function TournamentsPage() {
           selectProps={{
             value: seriesFilter,
             onChange: (event) => setSeriesFilter(event.target.value),
+          }}
+        />
+
+        <FormField
+          as="select"
+          label="Сортировка"
+          options={sortOptions}
+          selectProps={{
+            value: sortBy,
+            onChange: (event) => setSortBy(event.target.value),
           }}
         />
       </div>
@@ -192,18 +206,6 @@ export function TournamentsPage() {
         onClose={() => setDeleteId(null)}
         onConfirm={() => void handleDelete()}
       />
-
-      {notice ? (
-        <div
-          className={`rounded-xl border p-3 text-sm ${
-            notice.type === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          }`}
-        >
-          {notice.text}
-        </div>
-      ) : null}
     </div>
   )
 }

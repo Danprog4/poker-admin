@@ -51,8 +51,8 @@ export function AdjustmentsPage() {
       return
     }
 
-    if (userId === 'none' || seriesId === 'none' || !reason.trim()) {
-      setNotice({ text: 'Заполни юзера, серию и причину', type: 'error' })
+    if (userId === 'none' || seriesId === 'none') {
+      setNotice({ text: 'Заполни юзера и серию', type: 'error' })
       return
     }
 
@@ -148,7 +148,7 @@ export function AdjustmentsPage() {
             rows: 3,
             value: reason,
             onChange: (event) => setReason(event.target.value),
-            placeholder: 'Штраф за неявку / Бонус за помощь',
+            placeholder: 'Необязательно',
           }}
         />
 

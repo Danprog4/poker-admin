@@ -1,24 +1,70 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable } from '../components/DataTable'
 import { FormField } from '../components/FormField'
 import { formatDateInput } from '../lib/date'
 import { useAdminData } from '../providers/useAdminData'
+import { useToast } from '../providers/ToastProvider'
 
 type SeriesDraft = {
   name: string
-  startDate: string
-  endDate: string
+  month: string
+}
+
+const MONTHS_RU = [
+  'Январь',
+  'Февраль',
+  'Март',
+  'Апрель',
+  'Май',
+  'Июнь',
+  'Июль',
+  'Август',
+  'Сентябрь',
+  'Октябрь',
+  'Ноябрь',
+  'Декабрь',
+]
+
+function createMonthOptions() {
+  const currentYear = new Date().getFullYear()
+  const years = [currentYear - 1, currentYear, currentYear + 1, currentYear + 2]
+
+  return years.flatMap((year) =>
+    MONTHS_RU.map((label, monthIndex) => ({
+      value: `${year}-${String(monthIndex + 1).padStart(2, '0')}`,
+      label: `${label} ${year}`,
+    })),
+  )
+}
+
+function getMonthValue(date: string) {
+  return formatDateInput(date).slice(0, 7)
+}
+
+function getMonthRange(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number)
+  const start = new Date(year, monthNumber - 1, 1)
+  const end = new Date(year, monthNumber, 0)
+
+  return {
+    startDate: formatDateInput(start.toISOString()),
+    endDate: formatDateInput(end.toISOString()),
+  }
+}
+
+function getMonthLabel(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number)
+  return `${MONTHS_RU[monthNumber - 1]} ${year}`
 }
 
 export function SeriesPage() {
   const { state, createSeries, updateSeries, activateSeries, deleteSeries } = useAdminData()
+  const { success, error } = useToast()
 
   const [name, setName] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [notice, setNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
+  const [month, setMonth] = useState('')
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [pendingActivateId, setPendingActivateId] = useState<number | null>(null)
@@ -26,17 +72,11 @@ export function SeriesPage() {
   const [pendingSeriesId, setPendingSeriesId] = useState<number | null>(null)
   const [seriesDraftEdits, setSeriesDraftEdits] = useState<Record<number, Partial<SeriesDraft>>>({})
 
-  useEffect(() => {
-    if (notice) {
-      const timer = setTimeout(() => setNotice(null), 4000)
-      return () => clearTimeout(timer)
-    }
-  }, [notice])
-
   const rows = useMemo(
     () => [...state.series].sort((a, b) => new Date(b.startDate).valueOf() - new Date(a.startDate).valueOf()),
     [state.series],
   )
+  const monthOptions = useMemo(() => createMonthOptions(), [])
 
   const seriesBaseDrafts = useMemo(
     () =>
@@ -45,8 +85,7 @@ export function SeriesPage() {
           item.id,
           {
             name: item.name,
-            startDate: formatDateInput(item.startDate),
-            endDate: formatDateInput(item.endDate),
+            month: getMonthValue(item.startDate),
           },
         ]),
       ) as Record<number, SeriesDraft>,
@@ -58,28 +97,29 @@ export function SeriesPage() {
       return
     }
 
-    if (!name.trim() || !startDate || !endDate) {
-      setNotice({ text: 'Заполни название и даты серии', type: 'error' })
+    if (!name.trim() || !month) {
+      error('Заполни название и выбери месяц серии')
       return
     }
+
+    const range = getMonthRange(month)
 
     setIsCreating(true)
     const created = await createSeries({
       name: name.trim(),
-      startDate: new Date(startDate).toISOString(),
-      endDate: new Date(endDate).toISOString(),
+      startDate: range.startDate,
+      endDate: range.endDate,
     })
     setIsCreating(false)
 
     if (!created) {
-      setNotice({ text: 'Не удалось создать серию', type: 'error' })
+      error('Не удалось создать серию')
       return
     }
 
     setName('')
-    setStartDate('')
-    setEndDate('')
-    setNotice({ text: 'Серия создана', type: 'success' })
+    setMonth('')
+    success('Изменения применены')
   }
 
   const handleActivate = async (seriesId: number) => {
@@ -91,11 +131,12 @@ export function SeriesPage() {
     const activated = await activateSeries(seriesId)
     setPendingActivateId(null)
 
-    setNotice(
-      activated
-        ? { text: 'Серия активирована', type: 'success' }
-        : { text: 'Не удалось активировать серию', type: 'error' },
-    )
+    if (activated) {
+      success('Изменения применены')
+      return
+    }
+
+    error('Не удалось активировать серию')
   }
 
   const handleDelete = async () => {
@@ -108,12 +149,12 @@ export function SeriesPage() {
     setIsDeleting(false)
 
     if (!deleted) {
-      setNotice({ text: 'Не удалось удалить серию', type: 'error' })
+      error('Не удалось удалить серию')
       return
     }
 
     setDeleteId(null)
-    setNotice({ text: 'Серия удалена', type: 'success' })
+    success('Изменения применены')
   }
 
   const patchSeriesDraft = (seriesId: number, patch: Partial<SeriesDraft>) => {
@@ -136,21 +177,23 @@ export function SeriesPage() {
       ...seriesDraftEdits[seriesId],
     }
 
-    if (!draft.name.trim() || !draft.startDate || !draft.endDate) {
-      setNotice({ text: 'У серии должны быть заполнены название и даты', type: 'error' })
+    if (!draft.name.trim() || !draft.month) {
+      error('У серии должны быть заполнены название и месяц')
       return
     }
+
+    const range = getMonthRange(draft.month)
 
     setPendingSeriesId(seriesId)
     const updated = await updateSeries(seriesId, {
       name: draft.name.trim(),
-      startDate: new Date(draft.startDate).toISOString(),
-      endDate: new Date(draft.endDate).toISOString(),
+      startDate: range.startDate,
+      endDate: range.endDate,
     })
     setPendingSeriesId(null)
 
     if (!updated) {
-      setNotice({ text: 'Не удалось обновить серию', type: 'error' })
+      error('Не удалось обновить серию')
       return
     }
 
@@ -159,25 +202,32 @@ export function SeriesPage() {
       delete next[seriesId]
       return next
     })
-    setNotice({ text: 'Серия обновлена', type: 'success' })
+    success('Изменения применены')
   }
 
   return (
     <div className="space-y-4">
       <h1 className="font-['Space_Grotesk'] text-2xl font-bold">Серии</h1>
 
-      <div className="grid gap-4 rounded-xl border border-[var(--line)] bg-white p-4 shadow-sm md:grid-cols-4">
+      <div className="space-y-3 rounded-xl border border-[var(--line)] bg-white p-4 shadow-sm">
+        <p className="text-sm text-[var(--text-muted)]">
+          Серии создаются автоматически каждый месяц. Здесь можно заранее
+          добавить новую серию или подправить существующую вручную.
+        </p>
+
+        <div className="grid gap-4 md:grid-cols-3">
         <FormField
           label="Название"
           inputProps={{ value: name, onChange: (event) => setName(event.target.value), placeholder: 'Новая серия' }}
         />
         <FormField
-          label="Дата начала"
-          inputProps={{ type: 'date', value: startDate, onChange: (event) => setStartDate(event.target.value) }}
-        />
-        <FormField
-          label="Дата конца"
-          inputProps={{ type: 'date', value: endDate, onChange: (event) => setEndDate(event.target.value) }}
+          as="select"
+          label="Месяц"
+          options={[
+            { value: '', label: 'Выбери месяц' },
+            ...monthOptions,
+          ]}
+          selectProps={{ value: month, onChange: (event) => setMonth(event.target.value) }}
         />
 
         <div className="self-end">
@@ -189,6 +239,7 @@ export function SeriesPage() {
           >
             {isCreating ? 'Создаем...' : 'Создать'}
           </button>
+        </div>
         </div>
       </div>
 
@@ -214,7 +265,7 @@ export function SeriesPage() {
             },
           },
           {
-            header: 'Период',
+            header: 'Месяц',
             render: (row) => {
               const draft = {
                 ...seriesBaseDrafts[row.id],
@@ -222,28 +273,26 @@ export function SeriesPage() {
               }
 
               return (
-                <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                  <input
-                    type="date"
-                    value={draft.startDate}
+                <div className="space-y-1">
+                  <select
+                    value={draft.month}
                     onChange={(event) =>
                       patchSeriesDraft(row.id, {
-                        startDate: event.target.value,
+                        month: event.target.value,
                       })
                     }
                     className="rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
-                  />
-                  <span>—</span>
-                  <input
-                    type="date"
-                    value={draft.endDate}
-                    onChange={(event) =>
-                      patchSeriesDraft(row.id, {
-                        endDate: event.target.value,
-                      })
-                    }
-                    className="rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
-                  />
+                  >
+                    <option value="">Выбери месяц</option>
+                    {monthOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {draft.month ? getMonthLabel(draft.month) : 'Месяц не выбран'}
+                  </p>
                 </div>
               )
             },
@@ -295,18 +344,6 @@ export function SeriesPage() {
           },
         ]}
       />
-
-      {notice ? (
-        <div
-          className={`rounded-xl border p-3 text-sm ${
-            notice.type === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          }`}
-        >
-          {notice.text}
-        </div>
-      ) : null}
 
       <ConfirmDialog
         open={deleteId !== null}

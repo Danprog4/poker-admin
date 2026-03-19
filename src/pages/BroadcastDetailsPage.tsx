@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { FormField } from '../components/FormField'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatDateTime } from '../lib/date'
+import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
 
 export function BroadcastDetailsPage() {
@@ -13,21 +14,14 @@ export function BroadcastDetailsPage() {
   const broadcastId = Number(id)
 
   const { state, countBroadcastRecipients, updateBroadcast, sendBroadcast } = useAdminData()
+  const { success, error } = useToast()
 
   const broadcast = state.broadcasts.find((item) => item.id === broadcastId)
-  const [notice, setNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [openConfirm, setOpenConfirm] = useState(false)
   const [draftMessage, setDraftMessage] = useState('')
   const [isDirty, setIsDirty] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isSending, setIsSending] = useState(false)
-
-  useEffect(() => {
-    if (notice) {
-      const timer = setTimeout(() => setNotice(null), 4000)
-      return () => clearTimeout(timer)
-    }
-  }, [notice])
 
   const recipients = useMemo(() => {
     if (!broadcast) {
@@ -59,7 +53,7 @@ export function BroadcastDetailsPage() {
     }
 
     if (!currentMessage.trim()) {
-      setNotice({ text: 'Сообщение не может быть пустым', type: 'error' })
+      error('Сообщение не может быть пустым')
       return
     }
 
@@ -68,12 +62,12 @@ export function BroadcastDetailsPage() {
     setIsSaving(false)
 
     if (!saved) {
-      setNotice({ text: 'Не удалось сохранить черновик', type: 'error' })
+      error('Не удалось сохранить черновик')
       return
     }
 
     setIsDirty(false)
-    setNotice({ text: 'Черновик сохранён', type: 'success' })
+    success('Черновик сохранён')
   }
 
   const handleSend = async () => {
@@ -82,7 +76,7 @@ export function BroadcastDetailsPage() {
     }
 
     if (!currentMessage.trim()) {
-      setNotice({ text: 'Сообщение не может быть пустым', type: 'error' })
+      error('Сообщение не может быть пустым')
       return
     }
 
@@ -90,7 +84,7 @@ export function BroadcastDetailsPage() {
       const saved = await updateBroadcast(broadcast.id, { message: currentMessage.trim() })
 
       if (!saved) {
-        setNotice({ text: 'Не удалось сохранить изменения перед отправкой', type: 'error' })
+        error('Не удалось сохранить изменения перед отправкой')
         return
       }
 
@@ -102,12 +96,12 @@ export function BroadcastDetailsPage() {
     setIsSending(false)
 
     if (!sent) {
-      setNotice({ text: 'Не удалось отправить рассылку', type: 'error' })
+      error('Не удалось отправить рассылку')
       return
     }
 
     setOpenConfirm(false)
-    setNotice({ text: 'Рассылка отправлена', type: 'success' })
+    success('Рассылка отправлена')
   }
 
   return (
@@ -194,19 +188,6 @@ export function BroadcastDetailsPage() {
           </button>
         </div>
       </section>
-
-      {notice ? (
-        <div
-          className={`rounded-xl border p-3 text-sm ${
-            notice.type === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          }`}
-        >
-          {notice.text}
-        </div>
-      ) : null}
-
       <ConfirmDialog
         open={openConfirm}
         title="Отправить рассылку?"

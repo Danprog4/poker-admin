@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { DataTable } from '../components/DataTable'
+import { FormField } from '../components/FormField'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatDateTime } from '../lib/date'
 import { useAdminData } from '../providers/useAdminData'
@@ -9,6 +10,9 @@ import { useAdminData } from '../providers/useAdminData'
 export function UsersPage() {
   const { state, getStatusById } = useAdminData()
   const [query, setQuery] = useState('')
+  const [prepayFilter, setPrepayFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [sortBy, setSortBy] = useState('created_desc')
 
   const rows = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -26,8 +30,45 @@ export function UsersPage() {
           String(item.id).includes(normalized)
         )
       })
-      .sort((a, b) => new Date(b.createdAt).valueOf() - new Date(a.createdAt).valueOf())
-  }, [query, state.users])
+      .filter((item) => {
+        if (prepayFilter === 'required') {
+          return item.isPrepayRequired
+        }
+
+        if (prepayFilter === 'not_required') {
+          return !item.isPrepayRequired
+        }
+
+        if (statusFilter === 'none') {
+          return item.statusId === null
+        }
+
+        if (statusFilter !== 'all') {
+          return String(item.statusId ?? '') === statusFilter
+        }
+
+        return true
+      })
+      .sort((a, b) => {
+        if (sortBy === 'created_desc') {
+          return new Date(b.createdAt).valueOf() - new Date(a.createdAt).valueOf()
+        }
+
+        if (sortBy === 'created_asc') {
+          return new Date(a.createdAt).valueOf() - new Date(b.createdAt).valueOf()
+        }
+
+        if (sortBy === 'login_asc') {
+          return (a.login ?? '').localeCompare(b.login ?? '', 'ru')
+        }
+
+        if (sortBy === 'name_asc') {
+          return (a.name ?? '').localeCompare(b.name ?? '', 'ru')
+        }
+
+        return a.id - b.id
+      })
+  }, [prepayFilter, query, sortBy, state.users, statusFilter])
 
   return (
     <div className="space-y-4">
@@ -40,6 +81,41 @@ export function UsersPage() {
         placeholder="Поиск по нику, @username, имени или ID"
         className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-indigo-100 md:w-96"
       />
+
+      <div className="grid gap-3 rounded-xl border border-[var(--line)] bg-white p-4 shadow-sm md:grid-cols-3">
+        <FormField
+          as="select"
+          label="Предоплата"
+          options={[
+            { value: 'all', label: 'Все' },
+            { value: 'required', label: 'Требуется' },
+            { value: 'not_required', label: 'Не требуется' },
+          ]}
+          selectProps={{ value: prepayFilter, onChange: (event) => setPrepayFilter(event.target.value) }}
+        />
+        <FormField
+          as="select"
+          label="Статус"
+          options={[
+            { value: 'all', label: 'Все статусы' },
+            { value: 'none', label: 'Без статуса' },
+            ...state.statuses.map((item) => ({ value: String(item.id), label: item.name })),
+          ]}
+          selectProps={{ value: statusFilter, onChange: (event) => setStatusFilter(event.target.value) }}
+        />
+        <FormField
+          as="select"
+          label="Сортировка"
+          options={[
+            { value: 'created_desc', label: 'Сначала новые' },
+            { value: 'created_asc', label: 'Сначала старые' },
+            { value: 'login_asc', label: 'По нику' },
+            { value: 'name_asc', label: 'По имени' },
+            { value: 'id_asc', label: 'По ID' },
+          ]}
+          selectProps={{ value: sortBy, onChange: (event) => setSortBy(event.target.value) }}
+        />
+      </div>
 
       <DataTable
         rows={rows}

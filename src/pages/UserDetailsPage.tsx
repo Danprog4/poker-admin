@@ -1,12 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable } from '../components/DataTable'
 import { FormField } from '../components/FormField'
+import { SearchableSelect } from '../components/SearchableSelect'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatDateTime } from '../lib/date'
+import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
+
+function getDefaultPrepayMessage(login: string) {
+  return `Админ добавил вас в список предоплаты, ${login}. Напишите менеджеру, чтобы закрыть вопрос с оплатой и снова записываться на турниры без ограничений.`
+}
 
 export function UserDetailsPage() {
   const { id } = useParams()
@@ -20,6 +26,7 @@ export function UserDetailsPage() {
     getUserHistory,
     getUserAchievements,
     getUserAdjustments,
+    addRegistration,
     setUserPrepay,
     setUserStatus,
     updateUserLogin,
@@ -27,48 +34,27 @@ export function UserDetailsPage() {
     revokeAchievement,
     createAdjustment,
   } = useAdminData()
+  const { success, error } = useToast()
 
   const user = getUserById(userId)
+  const [nowTs] = useState(() => Date.now())
 
-  const [login, setLogin] = useState('')
-  const [statusId, setStatusId] = useState<string>('none')
-  const [prepay, setPrepay] = useState('false')
+  const [loginDraft, setLoginDraft] = useState<string | null>(null)
+  const [statusIdDraft, setStatusIdDraft] = useState<string | null>(null)
+  const [prepayDraft, setPrepayDraft] = useState<string | null>(null)
+  const [prepayMessageDraft, setPrepayMessageDraft] = useState<string | null>(null)
+  const [selectedTournamentId, setSelectedTournamentId] = useState('none')
   const [selectedAchievementId, setSelectedAchievementId] = useState('none')
-  const [seriesId, setSeriesId] = useState('none')
+  const [seriesIdDraft, setSeriesIdDraft] = useState<string | null>(null)
   const [points, setPoints] = useState(0)
   const [bounty, setBounty] = useState(0)
   const [reason, setReason] = useState('')
-  const [notice, setNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [revokeTarget, setRevokeTarget] = useState<{ userId: number; achievementId: number } | null>(null)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const [isAddingTournament, setIsAddingTournament] = useState(false)
   const [isAwarding, setIsAwarding] = useState(false)
   const [isAddingAdjustment, setIsAddingAdjustment] = useState(false)
   const [isRevoking, setIsRevoking] = useState(false)
-
-  // Sync from server
-  useEffect(() => {
-    if (user) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLogin(user.login)
-      setStatusId(user.statusId ? String(user.statusId) : 'none')
-      setPrepay(user.isPrepayRequired ? 'true' : 'false')
-    }
-  }, [user])
-
-  useEffect(() => {
-    if (activeSeries && seriesId === 'none') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSeriesId(String(activeSeries.id))
-    }
-  }, [activeSeries, seriesId])
-
-  // Auto-dismiss notices
-  useEffect(() => {
-    if (notice) {
-      const timer = setTimeout(() => setNotice(null), 4000)
-      return () => clearTimeout(timer)
-    }
-  }, [notice])
 
   const userHistory = useMemo(() => (user ? getUserHistory(user.id) : []), [getUserHistory, user])
   const userAchievements = useMemo(
@@ -79,6 +65,32 @@ export function UserDetailsPage() {
     () => (user ? getUserAdjustments(user.id) : []),
     [getUserAdjustments, user],
   )
+  const availableTournaments = useMemo(() => {
+    const activeTournamentIds = new Set(
+      userHistory
+        .filter(
+          (item) =>
+            item.registration &&
+            item.registration.status !== 'cancelled' &&
+            new Date(item.tournament.date).valueOf() > nowTs,
+        )
+        .map((item) => item.tournament.id),
+    )
+
+    return state.tournaments
+      .filter((item) => {
+        if (item.status === 'completed' || item.status === 'cancelled') {
+          return false
+        }
+
+        if (new Date(item.date).valueOf() <= nowTs) {
+          return false
+        }
+
+        return !activeTournamentIds.has(item.id)
+      })
+      .sort((a, b) => new Date(a.date).valueOf() - new Date(b.date).valueOf())
+  }, [nowTs, state.tournaments, userHistory])
 
   if (!user) {
     return (
@@ -88,6 +100,12 @@ export function UserDetailsPage() {
     )
   }
 
+  const login = loginDraft ?? user.login
+  const statusId = statusIdDraft ?? (user.statusId ? String(user.statusId) : 'none')
+  const prepay = prepayDraft ?? (user.isPrepayRequired ? 'true' : 'false')
+  const prepayMessage =
+    prepayMessageDraft ?? getDefaultPrepayMessage(user.login || `Игрок ${user.id}`)
+  const seriesId = seriesIdDraft ?? (activeSeries ? String(activeSeries.id) : 'none')
   const selectedStatus = getStatusById(user.statusId)
 
   const handleSaveProfile = async () => {
@@ -102,7 +120,7 @@ export function UserDetailsPage() {
 
       if (!loginUpdated) {
         setIsSavingProfile(false)
-        setNotice({ text: 'Не удалось обновить ник пользователя', type: 'error' })
+        error('Не удалось обновить ник пользователя')
         return
       }
     }
@@ -111,19 +129,47 @@ export function UserDetailsPage() {
 
     if (!statusUpdated) {
       setIsSavingProfile(false)
-      setNotice({ text: 'Не удалось обновить статус пользователя', type: 'error' })
+      error('Не удалось обновить статус пользователя')
       return
     }
 
-    const prepayUpdated = await setUserPrepay(user.id, prepay === 'true')
-    setIsSavingProfile(false)
+    const nextPrepay = prepay === 'true'
 
-    if (!prepayUpdated) {
-      setNotice({ text: 'Не удалось обновить флаг предоплаты', type: 'error' })
+    if (nextPrepay !== user.isPrepayRequired) {
+      const prepayUpdated = await setUserPrepay(
+        user.id,
+        nextPrepay,
+        nextPrepay ? prepayMessage.trim() : undefined,
+      )
+      setIsSavingProfile(false)
+
+      if (!prepayUpdated) {
+        error('Не удалось обновить флаг предоплаты')
+        return
+      }
+    } else {
+      setIsSavingProfile(false)
+    }
+
+    success('Профиль обновлён')
+  }
+
+  const handleAddTournament = async () => {
+    if (selectedTournamentId === 'none' || isAddingTournament) {
       return
     }
 
-    setNotice({ text: 'Профиль обновлён', type: 'success' })
+    setIsAddingTournament(true)
+    const added = await addRegistration(Number(selectedTournamentId), user.id)
+    setIsAddingTournament(false)
+
+    if (!added) {
+      error('Не удалось записать пользователя на турнир')
+      return
+    }
+
+    setSelectedTournamentId('none')
+    success('Пользователь записан на турнир')
   }
 
   const handleAwardAchievement = async () => {
@@ -140,12 +186,12 @@ export function UserDetailsPage() {
     setIsAwarding(false)
 
     if (!awarded) {
-      setNotice({ text: 'Не удалось выдать ачивку', type: 'error' })
+      error('Не удалось выдать ачивку')
       return
     }
 
     setSelectedAchievementId('none')
-    setNotice({ text: 'Ачивка выдана', type: 'success' })
+    success('Ачивка выдана')
   }
 
   const handleAddAdjustment = async () => {
@@ -153,8 +199,8 @@ export function UserDetailsPage() {
       return
     }
 
-    if (seriesId === 'none' || !reason.trim()) {
-      setNotice({ text: 'Выбери серию и укажи причину', type: 'error' })
+    if (seriesId === 'none') {
+      error('Выбери серию для корректировки')
       return
     }
 
@@ -169,14 +215,14 @@ export function UserDetailsPage() {
     setIsAddingAdjustment(false)
 
     if (!created) {
-      setNotice({ text: 'Не удалось добавить корректировку', type: 'error' })
+      error('Не удалось добавить корректировку')
       return
     }
 
     setPoints(0)
     setBounty(0)
     setReason('')
-    setNotice({ text: 'Корректировка добавлена', type: 'success' })
+    success('Корректировка добавлена')
   }
 
   const handleRevokeAchievement = async () => {
@@ -189,12 +235,12 @@ export function UserDetailsPage() {
     setIsRevoking(false)
 
     if (!revoked) {
-      setNotice({ text: 'Не удалось отобрать ачивку', type: 'error' })
+      error('Не удалось отобрать ачивку')
       return
     }
 
     setRevokeTarget(null)
-    setNotice({ text: 'Ачивка отозвана', type: 'success' })
+    success('Ачивка отозвана')
   }
 
   return (
@@ -218,7 +264,7 @@ export function UserDetailsPage() {
             label="Ник (login)"
             inputProps={{
               value: login,
-              onChange: (event) => setLogin(event.target.value),
+              onChange: (event) => setLoginDraft(event.target.value),
               placeholder: 'Никнейм пользователя',
             }}
           />
@@ -237,7 +283,7 @@ export function UserDetailsPage() {
               { value: 'none', label: 'Без статуса' },
               ...state.statuses.map((item) => ({ value: String(item.id), label: item.name })),
             ]}
-            selectProps={{ value: statusId, onChange: (event) => setStatusId(event.target.value) }}
+            selectProps={{ value: statusId, onChange: (event) => setStatusIdDraft(event.target.value) }}
           />
           <FormField
             as="select"
@@ -246,7 +292,20 @@ export function UserDetailsPage() {
               { value: 'false', label: 'Не требуется' },
               { value: 'true', label: 'Требуется' },
             ]}
-            selectProps={{ value: prepay, onChange: (event) => setPrepay(event.target.value) }}
+            selectProps={{ value: prepay, onChange: (event) => setPrepayDraft(event.target.value) }}
+          />
+        </div>
+
+        <div className="mt-4">
+          <FormField
+            as="textarea"
+            label="Сообщение для бота при предоплате"
+            textareaProps={{
+              rows: 4,
+              value: prepayMessage,
+              onChange: (event) => setPrepayMessageDraft(event.target.value),
+              placeholder: 'Админ добавил вас в список предоплаты...',
+            }}
           />
         </div>
 
@@ -320,6 +379,37 @@ export function UserDetailsPage() {
         </div>
 
         <div className="space-y-3 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm">
+          <h2 className="font-['Space_Grotesk'] text-xl font-bold">Записать на турнир</h2>
+
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-64 flex-1">
+              <SearchableSelect
+                label="Текущие турниры"
+                options={[
+                  { value: 'none', label: 'Выбери турнир' },
+                  ...availableTournaments.map((item) => ({
+                    value: String(item.id),
+                    label: `${item.name} (${formatDateTime(item.date)})`,
+                  })),
+                ]}
+                value={selectedTournamentId}
+                onChange={setSelectedTournamentId}
+                placeholder="Поиск по названию турнира..."
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void handleAddTournament()}
+              disabled={selectedTournamentId === 'none' || isAddingTournament}
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isAddingTournament ? 'Записываем...' : 'Записать'}
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm">
           <h2 className="font-['Space_Grotesk'] text-xl font-bold">Ручная корректировка</h2>
 
           <FormField
@@ -329,7 +419,7 @@ export function UserDetailsPage() {
               { value: 'none', label: 'Выбери серию' },
               ...state.series.map((item) => ({ value: String(item.id), label: item.name })),
             ]}
-            selectProps={{ value: seriesId, onChange: (event) => setSeriesId(event.target.value) }}
+            selectProps={{ value: seriesId, onChange: (event) => setSeriesIdDraft(event.target.value) }}
           />
 
           <div className="grid gap-3 md:grid-cols-2">
@@ -354,7 +444,12 @@ export function UserDetailsPage() {
           <FormField
             as="textarea"
             label="Причина"
-            textareaProps={{ value: reason, onChange: (event) => setReason(event.target.value), rows: 3 }}
+            textareaProps={{
+              value: reason,
+              onChange: (event) => setReason(event.target.value),
+              rows: 3,
+              placeholder: 'Необязательно',
+            }}
           />
 
           <button
@@ -408,19 +503,6 @@ export function UserDetailsPage() {
           ]}
         />
       </section>
-
-      {notice ? (
-        <div
-          className={`rounded-xl border p-3 text-sm ${
-            notice.type === 'error'
-              ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          }`}
-        >
-          {notice.text}
-        </div>
-      ) : null}
-
       <ConfirmDialog
         open={revokeTarget !== null}
         title="Отобрать ачивку?"
