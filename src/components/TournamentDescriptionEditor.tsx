@@ -115,8 +115,8 @@ export function TournamentDescriptionEditor({
               Пункты
             </span>
             {block.items.map((item, itemIndex) => (
-              <div key={`${block.id}-${itemIndex}`} className="flex gap-2">
-                <input
+              <div key={`${block.id}-${itemIndex}`} className="flex items-start gap-2">
+                <textarea
                   value={item}
                   onChange={(event) => {
                     const nextItems = [...block.items]
@@ -124,7 +124,8 @@ export function TournamentDescriptionEditor({
                     patchBlock(block.id, { items: nextItems })
                   }}
                   placeholder="Текст пункта"
-                  className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]"
+                  rows={3}
+                  className="min-h-[90px] w-full resize-y rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]"
                 />
                 <button
                   type="button"

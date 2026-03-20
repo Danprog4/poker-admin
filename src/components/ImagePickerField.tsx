@@ -15,6 +15,9 @@ type ImagePickerFieldProps = {
   onChange: (value: string) => void
   options: ImageOption[]
   previewLabel?: string
+  previewMode?: 'default' | 'inactive-medal'
+  allowUrlInput?: boolean
+  allowExistingOptions?: boolean
 }
 
 export function ImagePickerField({
@@ -23,9 +26,20 @@ export function ImagePickerField({
   onChange,
   options,
   previewLabel = 'Превью',
+  previewMode = 'default',
+  allowUrlInput = true,
+  allowExistingOptions = true,
 }: ImagePickerFieldProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { error } = useToast()
+  const previewImageClassName =
+    previewMode === 'inactive-medal'
+      ? 'h-full w-full object-contain grayscale opacity-45'
+      : 'h-full w-full object-contain'
+  const previewSingleImageClassName =
+    previewMode === 'inactive-medal'
+      ? 'max-h-28 w-auto object-contain grayscale opacity-45'
+      : 'max-h-28 w-auto object-contain'
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -51,18 +65,26 @@ export function ImagePickerField({
       <div className="space-y-1">
         <h3 className="font-semibold text-[var(--text-primary)]">{label}</h3>
         <p className="text-sm text-[var(--text-muted)]">
-          Можно вставить URL, загрузить новый файл или выбрать уже существующую картинку.
+          {allowUrlInput && allowExistingOptions
+            ? 'Можно вставить URL, загрузить новый файл или выбрать уже существующую картинку.'
+            : allowUrlInput
+              ? 'Можно вставить URL или загрузить новый файл.'
+              : allowExistingOptions
+                ? 'Можно загрузить новый файл или выбрать уже существующую картинку.'
+                : 'Загрузи новый файл, чтобы увидеть его превью.'}
         </p>
       </div>
 
-      <FormField
-        label="URL картинки"
-        inputProps={{
-          value,
-          placeholder: 'https://... или /images/...',
-          onChange: (event) => onChange(event.target.value),
-        }}
-      />
+      {allowUrlInput ? (
+        <FormField
+          label="URL картинки"
+          inputProps={{
+            value,
+            placeholder: 'https://... или /images/...',
+            onChange: (event) => onChange(event.target.value),
+          }}
+        />
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <input
@@ -90,7 +112,7 @@ export function ImagePickerField({
         ) : null}
       </div>
 
-      {options.length > 0 ? (
+      {allowExistingOptions && options.length > 0 ? (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
             Выбрать из уже существующих
@@ -114,7 +136,7 @@ export function ImagePickerField({
                     <img
                       src={option.value}
                       alt={option.label}
-                      className="h-full w-full object-contain"
+                      className={previewImageClassName}
                     />
                   </div>
                   <div className="px-3 py-2 text-sm text-[var(--text-primary)]">
@@ -133,7 +155,7 @@ export function ImagePickerField({
             {previewLabel}
           </p>
           <div className="flex min-h-28 items-center justify-center rounded-xl bg-gray-50 p-4">
-            <img src={value} alt={previewLabel} className="max-h-28 w-auto object-contain" />
+            <img src={value} alt={previewLabel} className={previewSingleImageClassName} />
           </div>
         </div>
       ) : null}

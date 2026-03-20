@@ -16,11 +16,6 @@ type MedalFormState = {
   tournamentId: string
 }
 
-const MEDAL_ASSET_OPTIONS = Array.from({ length: 8 }, (_, index) => ({
-  value: `/images/medals/medal-${index + 1}.png`,
-  label: `Медаль ${index + 1}`,
-}))
-
 const toNullable = (value: string) => {
   const trimmed = value.trim()
   return trimmed ? trimmed : null
@@ -136,29 +131,6 @@ export function MedalDetailsPage() {
     }
 
     return [...values].map((value) => ({ value, label: value }))
-  }, [state.achievements])
-
-  const medalImageOptions = useMemo(() => {
-    const map = new Map<string, string>()
-
-    for (const option of MEDAL_ASSET_OPTIONS) {
-      map.set(option.value, option.label)
-    }
-
-    for (const achievement of state.achievements) {
-      const icon = achievement.iconUrl?.trim()
-      const inactiveIcon = achievement.inactiveIconUrl?.trim()
-
-      if (icon && !map.has(icon)) {
-        map.set(icon, `${achievement.name} · активная`)
-      }
-
-      if (inactiveIcon && !map.has(inactiveIcon)) {
-        map.set(inactiveIcon, `${achievement.name} · неактивная`)
-      }
-    }
-
-    return Array.from(map, ([value, label]) => ({ value, label }))
   }, [state.achievements])
 
   const syncMedalTournament = async (targetMedalId: number, tournamentValue: string) => {
@@ -307,15 +279,20 @@ export function MedalDetailsPage() {
             label="Активная иконка"
             value={form.iconUrl}
             onChange={(value) => setForm((current) => (current ? { ...current, iconUrl: value } : current))}
-            options={medalImageOptions}
+            options={[]}
             previewLabel="Активная иконка"
+            allowUrlInput={false}
+            allowExistingOptions={false}
           />
           <ImagePickerField
             label="Неактивная иконка"
             value={form.inactiveIconUrl}
             onChange={(value) => setForm((current) => (current ? { ...current, inactiveIconUrl: value } : current))}
-            options={medalImageOptions}
+            options={[]}
             previewLabel="Неактивная иконка"
+            previewMode="inactive-medal"
+            allowUrlInput={false}
+            allowExistingOptions={false}
           />
         </div>
       </section>

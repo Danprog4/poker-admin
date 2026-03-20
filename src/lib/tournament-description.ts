@@ -87,7 +87,13 @@ export function serializeTournamentDescription(
   return blocks
     .map((block) => ({
       title: block.title.trim(),
-      items: block.items.map((item) => item.trim()).filter(Boolean),
+      items: block.items
+        .flatMap((item) =>
+          item
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean),
+        ),
     }))
     .filter((block) => block.title || block.items.length > 0)
     .map((block) => {
