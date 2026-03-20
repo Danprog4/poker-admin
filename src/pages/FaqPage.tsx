@@ -11,6 +11,13 @@ type FaqDraft = {
   isPublished: boolean
 }
 
+type FaqItem = {
+  id: number
+  question: string
+  answer: string
+  isPublished: boolean
+}
+
 export function FaqPage() {
   const { success, error } = useToast()
   const faqQuery = trpc.admin.faq.list.useQuery()
@@ -24,7 +31,7 @@ export function FaqPage() {
   const [drafts, setDrafts] = useState<Record<number, FaqDraft>>({})
   const [deleteId, setDeleteId] = useState<number | null>(null)
 
-  const items = useMemo(
+  const items = useMemo<FaqItem[]>(
     () => faqQuery.data ?? [],
     [faqQuery.data],
   )
