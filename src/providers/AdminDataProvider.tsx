@@ -121,6 +121,7 @@ type RawUser = {
   name?: string | null
   statusId?: number | null
   isPrepayRequired?: boolean | null
+  isPrepayExempt?: boolean | null
   isOnboarded?: boolean | null
   createdAt: string | Date
 }
@@ -131,6 +132,8 @@ type RawRegistration = {
   tournamentId: number
   registrationNumber: number
   status: RegistrationStatus
+  hasTopRatingBadge?: boolean | null
+  hasPreviousWinnerBadge?: boolean | null
   confirmedAt?: string | Date | null
   cancelledAt?: string | Date | null
   createdAt: string | Date
@@ -277,6 +280,7 @@ const normalizeState = (raw: RawBootstrapState | null | undefined): AdminDataSta
         name: item.name ?? '',
         statusId: item.statusId ?? null,
         isPrepayRequired: Boolean(item.isPrepayRequired),
+        isPrepayExempt: Boolean(item.isPrepayExempt),
         isOnboarded: Boolean(item.isOnboarded),
         createdAt: toIso(item.createdAt),
       }),
@@ -288,6 +292,8 @@ const normalizeState = (raw: RawBootstrapState | null | undefined): AdminDataSta
         tournamentId: item.tournamentId,
         registrationNumber: item.registrationNumber,
         status: item.status as RegistrationStatus,
+        hasTopRatingBadge: Boolean(item.hasTopRatingBadge),
+        hasPreviousWinnerBadge: Boolean(item.hasPreviousWinnerBadge),
         confirmedAt: item.confirmedAt ? toIso(item.confirmedAt) : null,
         cancelledAt: item.cancelledAt ? toIso(item.cancelledAt) : null,
         createdAt: toIso(item.createdAt),
@@ -383,6 +389,13 @@ type AdminDataContextValue = {
   addRegistration: (tournamentId: number, userId: number) => Promise<boolean>
   cancelRegistration: (registrationId: number) => Promise<boolean>
   confirmRegistration: (registrationId: number) => Promise<boolean>
+  updateRegistrationBadges: (
+    registrationId: number,
+    input: {
+      hasTopRatingBadge?: boolean
+      hasPreviousWinnerBadge?: boolean
+    },
+  ) => Promise<boolean>
   moveFromWaitlist: (registrationId: number) => Promise<boolean>
   saveTournamentResults: (tournamentId: number, rows: TournamentResultInput[]) => Promise<boolean>
   importTournamentResults: (
@@ -400,7 +413,7 @@ type AdminDataContextValue = {
   deleteSeries: (seriesId: number) => Promise<boolean>
   setUserPrepay: (
     userId: number,
-    value: boolean,
+    mode: 'required' | 'optional' | 'never',
     message?: string,
   ) => Promise<boolean>
   setUserStatus: (userId: number, statusId: number | null) => Promise<boolean>
@@ -448,6 +461,8 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
   const addRegistrationMutation = trpc.admin.registrations.add.useMutation()
   const cancelRegistrationMutation = trpc.admin.registrations.cancel.useMutation()
   const confirmRegistrationMutation = trpc.admin.registrations.confirm.useMutation()
+  const updateRegistrationBadgesMutation =
+    trpc.admin.registrations.updateBadges.useMutation()
   const moveFromWaitlistMutation =
     trpc.admin.registrations.moveFromWaitlist.useMutation()
 
@@ -858,6 +873,26 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
     [confirmRegistrationMutation, runAndRefresh],
   )
 
+  const updateRegistrationBadges = useCallback(
+    async (
+      registrationId: number,
+      input: {
+        hasTopRatingBadge?: boolean
+        hasPreviousWinnerBadge?: boolean
+      },
+    ) => {
+      const result = await runAndRefresh(() =>
+        updateRegistrationBadgesMutation.mutateAsync({
+          registrationId,
+          ...input,
+        }),
+      )
+
+      return result !== null
+    },
+    [runAndRefresh, updateRegistrationBadgesMutation],
+  )
+
   const moveFromWaitlist = useCallback(
     async (registrationId: number) => {
       const result = await runAndRefresh(() =>
@@ -1006,11 +1041,15 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
   )
 
   const setUserPrepay = useCallback(
-    async (userId: number, value: boolean, message?: string) => {
+    async (
+      userId: number,
+      mode: 'required' | 'optional' | 'never',
+      message?: string,
+    ) => {
       const result = await runAndRefresh(() =>
         setUserPrepayMutation.mutateAsync({
           userId,
-          isPrepayRequired: value,
+          prepayMode: mode,
           message,
         }),
       )
@@ -1240,6 +1279,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       addRegistration,
       cancelRegistration,
       confirmRegistration,
+      updateRegistrationBadges,
       moveFromWaitlist,
       saveTournamentResults,
       importTournamentResults,
@@ -1293,6 +1333,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       addRegistration,
       cancelRegistration,
       confirmRegistration,
+      updateRegistrationBadges,
       moveFromWaitlist,
       saveTournamentResults,
       importTournamentResults,

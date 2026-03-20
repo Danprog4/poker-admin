@@ -27,7 +27,7 @@ export function TournamentNewPage() {
   const [descriptionBlocks, setDescriptionBlocks] = useState<TournamentDescriptionBlock[]>([])
   const [bonusItems, setBonusItems] = useState<string[]>([''])
   const [date, setDate] = useState('')
-  const [maxPlayersInput, setMaxPlayersInput] = useState('100')
+  const [maxPlayersInput, setMaxPlayersInput] = useState('60')
   const [seriesId, setSeriesId] = useState<string>(
     activeSeries ? String(activeSeries.id) : 'none',
   )
@@ -279,7 +279,7 @@ export function TournamentNewPage() {
             pattern: '[0-9]*',
             value: maxPlayersInput,
             onChange: (event) => handleMaxPlayersChange(event.target.value),
-            placeholder: '100',
+            placeholder: '60',
           }}
         />
 
@@ -294,7 +294,7 @@ export function TournamentNewPage() {
         />
 
         <FormField
-          label="Image URL (опционально)"
+          label="URL картинки (необязательно)"
           inputProps={{
             value: imageUrl,
             onChange: (event) => {
@@ -303,7 +303,7 @@ export function TournamentNewPage() {
                 setImageDataUrl(null)
               }
             },
-            placeholder: 'https://...',
+            placeholder: 'https://... или /images/...',
           }}
         />
       </div>
@@ -324,7 +324,8 @@ export function TournamentNewPage() {
         </span>
         <p className="text-sm text-[var(--text-muted)]">
           Лучше использовать квадратное изображение 1:1. Ниже сразу показываем,
-          как оно ляжет в карточку и на экран турнира в приложении.
+          как оно ляжет в карточку и на экран турнира в приложении. Поле можно
+          оставить пустым, тогда в приложении будет стандартный placeholder.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -342,6 +343,13 @@ export function TournamentNewPage() {
           >
             {isImageLoading ? 'Загрузка...' : 'Выбрать файл'}
           </button>
+          <button
+            type="button"
+            onClick={handleClearImage}
+            className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+          >
+            Использовать placeholder
+          </button>
           {(imageDataUrl || imageUrl.trim()) && (
             <button
               type="button"
@@ -352,6 +360,12 @@ export function TournamentNewPage() {
             </button>
           )}
         </div>
+
+        {!previewImage ? (
+          <p className="text-sm text-[var(--text-muted)]">
+            Сейчас выбрана стандартная обложка по умолчанию.
+          </p>
+        ) : null}
 
         {existingCoverOptions.length > 0 ? (
           <div className="space-y-2">

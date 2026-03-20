@@ -9,6 +9,7 @@ const navItems = [
   { to: "/statuses", label: "Статусы" },
   { to: "/medals", label: "Медали" },
   { to: "/notifications", label: "Уведомления" },
+  { to: "/faq", label: "FAQ" },
 ];
 
 export function Sidebar() {

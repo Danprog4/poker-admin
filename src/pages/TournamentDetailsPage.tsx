@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable } from '../components/DataTable'
@@ -45,8 +45,16 @@ function getDefaultPrepayMessage(login: string) {
   return `Админ добавил вас в список предоплаты, ${login}. Напишите менеджеру, чтобы закрыть вопрос с оплатой и снова записываться на турниры без ограничений.`
 }
 
+const PARTICIPANT_BADGES = {
+  previousWinner: '🔥',
+  topRating: '👑',
+  regularClub: '🦈',
+  newPlayer: '🆕',
+} as const
+
 export function TournamentDetailsPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const tournamentId = Number(id)
 
   const {
@@ -54,10 +62,12 @@ export function TournamentDetailsPage() {
     getTournamentById,
     getTournamentParticipants,
     updateTournament,
+    deleteTournament,
     updateTournamentStatus,
     addRegistration,
     cancelRegistration,
     confirmRegistration,
+    updateRegistrationBadges,
     moveFromWaitlist,
     setUserPrepay,
     saveTournamentResults,
@@ -80,8 +90,11 @@ export function TournamentDetailsPage() {
   const [isAddingUser, setIsAddingUser] = useState(false)
   const [isSavingResults, setIsSavingResults] = useState(false)
   const [isCancellingRegistration, setIsCancellingRegistration] = useState(false)
+  const [isDeletingTournament, setIsDeletingTournament] = useState(false)
   const [pendingRegistrationId, setPendingRegistrationId] = useState<number | null>(null)
+  const [pendingBadgeRegistrationId, setPendingBadgeRegistrationId] = useState<number | null>(null)
   const [pendingResultId, setPendingResultId] = useState<number | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
   // Local form state for tournament fields (no per-keystroke mutations)
   const [localName, setLocalName] = useState('')
@@ -219,6 +232,44 @@ export function TournamentDetailsPage() {
         Турнир не найден.
       </div>
     )
+  }
+
+  const hasEarlierTournamentParticipation = (userId: number) =>
+    state.registrations.some((registration) => {
+      if (
+        registration.userId !== userId ||
+        registration.tournamentId === tournament.id ||
+        registration.status === 'cancelled'
+      ) {
+        return false
+      }
+
+      const registrationTournament = state.tournaments.find(
+        (item) => item.id === registration.tournamentId,
+      )
+
+      if (!registrationTournament) {
+        return false
+      }
+
+      return (
+        new Date(registrationTournament.date).valueOf() <
+        new Date(tournament.date).valueOf()
+      )
+    })
+
+  const getParticipantBadge = (participant: (typeof participants)[number]) => {
+    if (participant.registration.hasPreviousWinnerBadge) {
+      return PARTICIPANT_BADGES.previousWinner
+    }
+
+    if (participant.registration.hasTopRatingBadge) {
+      return PARTICIPANT_BADGES.topRating
+    }
+
+    return hasEarlierTournamentParticipation(participant.user.id)
+      ? PARTICIPANT_BADGES.regularClub
+      : PARTICIPANT_BADGES.newPlayer
   }
 
   const getResultDraft = (
@@ -519,7 +570,7 @@ export function TournamentDetailsPage() {
     }
 
     setPendingRegistrationId(userId)
-    const cleared = await setUserPrepay(userId, false)
+    const cleared = await setUserPrepay(userId, 'optional')
     setPendingRegistrationId(null)
 
     if (cleared) {
@@ -538,7 +589,7 @@ export function TournamentDetailsPage() {
     setPendingRegistrationId(userId)
     const applied = await setUserPrepay(
       userId,
-      true,
+      'required',
       getDefaultPrepayMessage(login || `Игрок ${userId}`),
     )
     setPendingRegistrationId(null)
@@ -556,6 +607,90 @@ export function TournamentDetailsPage() {
     markDirty()
   }
 
+  const handleDeleteTournament = async () => {
+    if (isDeletingTournament) {
+      return
+    }
+
+    setIsDeletingTournament(true)
+    const deleted = await deleteTournament(tournament.id)
+    setIsDeletingTournament(false)
+
+    if (!deleted) {
+      error('Не удалось удалить турнир')
+      return
+    }
+
+    success('Турнир удалён')
+    navigate('/tournaments')
+  }
+
+  const handleToggleRegistrationBadge = async (
+    registrationId: number,
+    patch: {
+      hasTopRatingBadge?: boolean
+      hasPreviousWinnerBadge?: boolean
+    },
+  ) => {
+    if (pendingBadgeRegistrationId !== null) {
+      return
+    }
+
+    setPendingBadgeRegistrationId(registrationId)
+    const updated = await updateRegistrationBadges(registrationId, patch)
+    setPendingBadgeRegistrationId(null)
+
+    if (!updated) {
+      error('Не удалось обновить эмодзи участника')
+      return
+    }
+
+    success('Изменения применены')
+  }
+
+  const handleCopyResults = async () => {
+    const rows = participants
+      .filter((participant) => participant.registration.status !== 'cancelled')
+      .sort(
+        (left, right) =>
+          left.registration.registrationNumber - right.registration.registrationNumber,
+      )
+
+    if (rows.length === 0) {
+      error('Пока нет участников для копирования')
+      return
+    }
+
+    const legend = [
+      `${PARTICIPANT_BADGES.previousWinner} — победитель прошлого турнира`,
+      `${PARTICIPANT_BADGES.topRating} — топ рейтинга`,
+      `${PARTICIPANT_BADGES.regularClub} — регуляр клуба`,
+      `${PARTICIPANT_BADGES.newPlayer} — новый игрок`,
+    ].join('\n')
+
+    const list = rows
+      .map((participant, index) => {
+        const label =
+          participant.user.login?.trim() ||
+          participant.user.name?.trim() ||
+          `Игрок ${participant.user.id}`
+        const badge = getParticipantBadge(participant)
+
+        return `${index + 1}. ${label}${badge ? ` ${badge}` : ''}`
+      })
+      .join('\n')
+
+    const text = `${legend}\n\nСписок игроков\n\n${list}`
+
+    try {
+      await navigator.clipboard.writeText(text)
+      success('Список игроков скопирован')
+    } catch (cause) {
+      console.error(cause)
+      error('Не удалось скопировать список игроков')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
@@ -567,7 +702,16 @@ export function TournamentDetailsPage() {
       <section className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-['Space_Grotesk'] text-2xl font-bold">Турнир #{tournament.id}</h1>
-          <StatusBadge status={tournament.status} />
+          <div className="flex items-center gap-2">
+            <StatusBadge status={tournament.status} />
+            <button
+              type="button"
+              onClick={() => setIsDeleteDialogOpen(true)}
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+            >
+              Удалить
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -645,7 +789,7 @@ export function TournamentDetailsPage() {
         </label>
 
         <FormField
-          label="Image URL (опционально)"
+          label="URL картинки (необязательно)"
           inputProps={{
             value: localImageUrl,
             onChange: (event) => {
@@ -655,7 +799,7 @@ export function TournamentDetailsPage() {
               }
               markDirty()
             },
-            placeholder: 'https://...',
+            placeholder: 'https://... или /images/...',
           }}
         />
 
@@ -665,7 +809,8 @@ export function TournamentDetailsPage() {
           </span>
           <p className="text-sm text-[var(--text-muted)]">
             Картинка грузится как квадрат 1:1. Ниже показываем два реальных
-            превью из приложения.
+            превью из приложения. Поле можно оставить пустым, тогда в приложении
+            будет стандартный placeholder.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -684,6 +829,13 @@ export function TournamentDetailsPage() {
             >
               {isImageLoading ? 'Загрузка...' : 'Выбрать файл'}
             </button>
+            <button
+              type="button"
+              onClick={handleClearImage}
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+            >
+              Использовать placeholder
+            </button>
             {(localImageDataUrl || localImageUrl.trim()) && (
               <button
                 type="button"
@@ -694,6 +846,12 @@ export function TournamentDetailsPage() {
               </button>
             )}
           </div>
+
+          {!previewImage ? (
+            <p className="text-sm text-[var(--text-muted)]">
+              Сейчас выбрана стандартная обложка по умолчанию.
+            </p>
+          ) : null}
 
           {existingCoverOptions.length > 0 ? (
             <div className="space-y-2">
@@ -846,6 +1004,15 @@ export function TournamentDetailsPage() {
           </div>
         </div>
 
+        <div className="rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-[var(--text-primary)] shadow-sm">
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            <span>{PARTICIPANT_BADGES.previousWinner} победитель прошлого турнира</span>
+            <span>{PARTICIPANT_BADGES.topRating} топ рейтинга</span>
+            <span>{PARTICIPANT_BADGES.regularClub} регуляр клуба</span>
+            <span>{PARTICIPANT_BADGES.newPlayer} новый игрок</span>
+          </div>
+        </div>
+
         <DataTable
           rows={participants}
           getRowKey={(row) => row.registration.id}
@@ -856,6 +1023,57 @@ export function TournamentDetailsPage() {
             {
               header: 'Регистрация',
               render: (row) => <StatusBadge status={row.registration.status} />,
+            },
+            {
+              header: 'Эмодзи',
+              render: (row) => {
+                const badge = getParticipantBadge(row)
+
+                return (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 text-lg">
+                      <span>{badge}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleToggleRegistrationBadge(row.registration.id, {
+                            hasPreviousWinnerBadge:
+                              !row.registration.hasPreviousWinnerBadge,
+                            hasTopRatingBadge: false,
+                          })
+                        }
+                        disabled={pendingBadgeRegistrationId !== null}
+                        className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                          row.registration.hasPreviousWinnerBadge
+                            ? 'border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100'
+                            : 'border border-[var(--line)] bg-white text-[var(--text-secondary)] hover:bg-gray-50'
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        🔥 Победитель
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleToggleRegistrationBadge(row.registration.id, {
+                            hasTopRatingBadge: !row.registration.hasTopRatingBadge,
+                            hasPreviousWinnerBadge: false,
+                          })
+                        }
+                        disabled={pendingBadgeRegistrationId !== null}
+                        className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                          row.registration.hasTopRatingBadge
+                            ? 'border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                            : 'border border-[var(--line)] bg-white text-[var(--text-secondary)] hover:bg-gray-50'
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        👑 Топ рейтинга
+                      </button>
+                    </div>
+                  </div>
+                )
+              },
             },
             {
               header: 'Подтверждение',
@@ -929,7 +1147,16 @@ export function TournamentDetailsPage() {
       </section>
 
       <section className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm">
-        <h2 className="font-['Space_Grotesk'] text-xl font-bold">Ручной ввод результатов</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-['Space_Grotesk'] text-xl font-bold">Ручной ввод результатов</h2>
+          <button
+            type="button"
+            onClick={() => void handleCopyResults()}
+            className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+          >
+            Скопировать список игроков
+          </button>
+        </div>
 
         <DataTable
           rows={participants.filter((item) => item.registration.status !== 'cancelled')}
@@ -1074,6 +1301,17 @@ export function TournamentDetailsPage() {
         pending={isCancellingRegistration}
         onClose={() => setCancelRegId(null)}
         onConfirm={() => void handleCancelRegistration()}
+      />
+
+      <ConfirmDialog
+        open={isDeleteDialogOpen}
+        title="Удалить турнир?"
+        description="Это действие нельзя отменить. Система автоматически очистит регистрации, результаты и зависимые привязки, после чего удалит турнир."
+        confirmLabel="Удалить"
+        confirmPendingLabel="Удаляем..."
+        pending={isDeletingTournament}
+        onClose={() => setIsDeleteDialogOpen(false)}
+        onConfirm={() => void handleDeleteTournament()}
       />
     </div>
   )

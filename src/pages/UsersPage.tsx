@@ -31,6 +31,10 @@ export function UsersPage() {
         )
       })
       .filter((item) => {
+        if (prepayFilter === 'never') {
+          return item.isPrepayExempt
+        }
+
         if (prepayFilter === 'required') {
           return item.isPrepayRequired
         }
@@ -89,6 +93,7 @@ export function UsersPage() {
           options={[
             { value: 'all', label: 'Все' },
             { value: 'required', label: 'Требуется' },
+            { value: 'never', label: 'Никогда' },
             { value: 'not_required', label: 'Не требуется' },
           ]}
           selectProps={{ value: prepayFilter, onChange: (event) => setPrepayFilter(event.target.value) }}
@@ -147,7 +152,11 @@ export function UsersPage() {
           {
             header: 'Предоплата',
             render: (row) =>
-              row.isPrepayRequired ? (
+              row.isPrepayExempt ? (
+                <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                  Никогда
+                </span>
+              ) : row.isPrepayRequired ? (
                 <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20">
                   Требуется
                 </span>

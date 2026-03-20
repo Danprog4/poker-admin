@@ -102,7 +102,13 @@ export function UserDetailsPage() {
 
   const login = loginDraft ?? user.login
   const statusId = statusIdDraft ?? (user.statusId ? String(user.statusId) : 'none')
-  const prepay = prepayDraft ?? (user.isPrepayRequired ? 'true' : 'false')
+  const prepay =
+    prepayDraft ??
+    (user.isPrepayExempt
+      ? 'never'
+      : user.isPrepayRequired
+        ? 'required'
+        : 'optional')
   const prepayMessage =
     prepayMessageDraft ?? getDefaultPrepayMessage(user.login || `Игрок ${user.id}`)
   const seriesId = seriesIdDraft ?? (activeSeries ? String(activeSeries.id) : 'none')
@@ -133,13 +139,17 @@ export function UserDetailsPage() {
       return
     }
 
-    const nextPrepay = prepay === 'true'
+    const currentPrepayMode = user.isPrepayExempt
+      ? 'never'
+      : user.isPrepayRequired
+        ? 'required'
+        : 'optional'
 
-    if (nextPrepay !== user.isPrepayRequired) {
+    if (prepay !== currentPrepayMode) {
       const prepayUpdated = await setUserPrepay(
         user.id,
-        nextPrepay,
-        nextPrepay ? prepayMessage.trim() : undefined,
+        prepay as 'required' | 'optional' | 'never',
+        prepay === 'required' ? prepayMessage.trim() : undefined,
       )
       setIsSavingProfile(false)
 
@@ -289,12 +299,18 @@ export function UserDetailsPage() {
             as="select"
             label="Предоплата"
             options={[
-              { value: 'false', label: 'Не требуется' },
-              { value: 'true', label: 'Требуется' },
+              { value: 'optional', label: 'Не требуется' },
+              { value: 'required', label: 'Требуется' },
+              { value: 'never', label: 'Никогда' },
             ]}
             selectProps={{ value: prepay, onChange: (event) => setPrepayDraft(event.target.value) }}
           />
         </div>
+
+        <p className="mt-3 text-sm text-[var(--text-muted)]">
+          Режим «Никогда» отключает автопредоплату для VIP-пользователя: даже
+          при поздней отмене записи система не переведёт его в лист предоплаты.
+        </p>
 
         <div className="mt-4">
           <FormField

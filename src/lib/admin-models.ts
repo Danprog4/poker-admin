@@ -63,6 +63,7 @@ export type ClubUser = {
   name: string
   statusId: number | null
   isPrepayRequired: boolean
+  isPrepayExempt: boolean
   isOnboarded: boolean
   createdAt: string
 }
@@ -73,6 +74,8 @@ export type TournamentRegistration = {
   tournamentId: number
   registrationNumber: number
   status: RegistrationStatus
+  hasTopRatingBadge: boolean
+  hasPreviousWinnerBadge: boolean
   confirmedAt: string | null
   cancelledAt: string | null
   createdAt: string

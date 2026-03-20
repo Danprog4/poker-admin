@@ -171,27 +171,15 @@ export function TournamentsPage() {
           },
           {
             header: '',
-            render: (row) => {
-              const canDelete =
-                row.status === 'upcoming' &&
-                !state.registrations.some(
-                  (item) => item.tournamentId === row.id && item.status !== 'cancelled',
-                )
-
-              if (!canDelete) {
-                return null
-              }
-
-              return (
-                <button
-                  type="button"
-                  onClick={() => setDeleteId(row.id)}
-                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-100"
-                >
-                  Удалить
-                </button>
-              )
-            },
+            render: (row) => (
+              <button
+                type="button"
+                onClick={() => setDeleteId(row.id)}
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-100"
+              >
+                Удалить
+              </button>
+            ),
           },
         ]}
       />
@@ -199,7 +187,7 @@ export function TournamentsPage() {
       <ConfirmDialog
         open={deleteId !== null}
         title="Удалить турнир?"
-        description="Это действие нельзя отменить. Турнир будет удалён из системы."
+        description="Это действие нельзя отменить. Система автоматически очистит регистрации, результаты и зависимые привязки, после чего удалит турнир."
         confirmLabel="Удалить"
         confirmPendingLabel="Удаляем..."
         pending={isDeleting}
