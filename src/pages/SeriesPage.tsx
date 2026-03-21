@@ -9,44 +9,53 @@ import { useToast } from '../providers/ToastProvider'
 
 type SeriesDraft = {
   name: string
-  month: string
+  startDate: string
+  endDate: string
 }
 
-const MONTHS_RU = [
-  'Январь',
-  'Февраль',
-  'Март',
-  'Апрель',
-  'Май',
-  'Июнь',
-  'Июль',
-  'Август',
-  'Сентябрь',
-  'Октябрь',
-  'Ноябрь',
-  'Декабрь',
-]
+function normalizeDateRange(startDate: string, endDate: string) {
+  if (!startDate || !endDate) {
+    return null
+  }
 
-function createMonthOptions() {
-  const currentYear = new Date().getFullYear()
-  const years = [currentYear - 1, currentYear, currentYear + 1, currentYear + 2]
+  const start = new Date(startDate)
+  const end = new Date(endDate)
 
-  return years.flatMap((year) =>
-    MONTHS_RU.map((label, monthIndex) => ({
-      value: `${year}-${String(monthIndex + 1).padStart(2, '0')}`,
-      label: `${label} ${year}`,
-    })),
-  )
+  if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) {
+    return null
+  }
+
+  if (start.valueOf() > end.valueOf()) {
+    return null
+  }
+
+  return { startDate, endDate }
 }
 
-function getMonthValue(date: string) {
-  return formatDateInput(date).slice(0, 7)
+function formatSeriesDate(value: string) {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.valueOf())) {
+    return value
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+  }).format(date)
 }
 
-function getMonthRange(month: string) {
-  const [year, monthNumber] = month.split('-').map(Number)
-  const start = new Date(year, monthNumber - 1, 1)
-  const end = new Date(year, monthNumber, 0)
+function getCurrentWeekRange(weekOffset = 0) {
+  const now = new Date()
+  const dayIndex = (now.getDay() + 6) % 7
+  const start = new Date(now)
+
+  start.setHours(0, 0, 0, 0)
+  start.setDate(start.getDate() - dayIndex + weekOffset * 7)
+
+  const end = new Date(start)
+
+  end.setDate(end.getDate() + 6)
 
   return {
     startDate: formatDateInput(start.toISOString()),
@@ -54,29 +63,49 @@ function getMonthRange(month: string) {
   }
 }
 
-function getMonthLabel(month: string) {
-  const [year, monthNumber] = month.split('-').map(Number)
-  return `${MONTHS_RU[monthNumber - 1]} ${year}`
+function getCurrentMonthRange(monthOffset = 0) {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1)
+  const end = new Date(now.getFullYear(), now.getMonth() + monthOffset + 1, 0)
+
+  return {
+    startDate: formatDateInput(start.toISOString()),
+    endDate: formatDateInput(end.toISOString()),
+  }
 }
 
 export function SeriesPage() {
-  const { state, createSeries, updateSeries, activateSeries, deleteSeries } = useAdminData()
+  const {
+    state,
+    ratingsBySeriesId,
+    createSeries,
+    updateSeries,
+    activateSeries,
+    deleteSeries,
+  } = useAdminData()
   const { success, error } = useToast()
 
   const [name, setName] = useState('')
-  const [month, setMonth] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [pendingActivateId, setPendingActivateId] = useState<number | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [pendingSeriesId, setPendingSeriesId] = useState<number | null>(null)
-  const [seriesDraftEdits, setSeriesDraftEdits] = useState<Record<number, Partial<SeriesDraft>>>({})
+  const [copyingSeriesId, setCopyingSeriesId] = useState<number | null>(null)
+  const [seriesDraftEdits, setSeriesDraftEdits] = useState<
+    Record<number, Partial<SeriesDraft>>
+  >({})
 
   const rows = useMemo(
-    () => [...state.series].sort((a, b) => new Date(b.startDate).valueOf() - new Date(a.startDate).valueOf()),
+    () =>
+      [...state.series].sort(
+        (a, b) =>
+          new Date(b.startDate).valueOf() - new Date(a.startDate).valueOf(),
+      ),
     [state.series],
   )
-  const monthOptions = useMemo(() => createMonthOptions(), [])
 
   const seriesBaseDrafts = useMemo(
     () =>
@@ -85,30 +114,36 @@ export function SeriesPage() {
           item.id,
           {
             name: item.name,
-            month: getMonthValue(item.startDate),
+            startDate: formatDateInput(item.startDate),
+            endDate: formatDateInput(item.endDate),
           },
         ]),
       ) as Record<number, SeriesDraft>,
     [state.series],
   )
 
+  const fillCreateRange = (nextRange: { startDate: string; endDate: string }) => {
+    setStartDate(nextRange.startDate)
+    setEndDate(nextRange.endDate)
+  }
+
   const handleCreate = async () => {
     if (isCreating) {
       return
     }
 
-    if (!name.trim() || !month) {
-      error('Заполни название и выбери месяц серии')
+    const normalizedRange = normalizeDateRange(startDate, endDate)
+
+    if (!name.trim() || !normalizedRange) {
+      error('Заполни название и корректный диапазон дат серии')
       return
     }
-
-    const range = getMonthRange(month)
 
     setIsCreating(true)
     const created = await createSeries({
       name: name.trim(),
-      startDate: range.startDate,
-      endDate: range.endDate,
+      startDate: normalizedRange.startDate,
+      endDate: normalizedRange.endDate,
     })
     setIsCreating(false)
 
@@ -118,7 +153,8 @@ export function SeriesPage() {
     }
 
     setName('')
-    setMonth('')
+    setStartDate('')
+    setEndDate('')
     success('Изменения применены')
   }
 
@@ -176,19 +212,18 @@ export function SeriesPage() {
       ...seriesBaseDrafts[seriesId],
       ...seriesDraftEdits[seriesId],
     }
+    const normalizedRange = normalizeDateRange(draft.startDate, draft.endDate)
 
-    if (!draft.name.trim() || !draft.month) {
-      error('У серии должны быть заполнены название и месяц')
+    if (!draft.name.trim() || !normalizedRange) {
+      error('У серии должны быть название и корректный диапазон дат')
       return
     }
-
-    const range = getMonthRange(draft.month)
 
     setPendingSeriesId(seriesId)
     const updated = await updateSeries(seriesId, {
       name: draft.name.trim(),
-      startDate: range.startDate,
-      endDate: range.endDate,
+      startDate: normalizedRange.startDate,
+      endDate: normalizedRange.endDate,
     })
     setPendingSeriesId(null)
 
@@ -205,41 +240,108 @@ export function SeriesPage() {
     success('Изменения применены')
   }
 
+  const handleCopyRating = async (seriesId: number) => {
+    if (copyingSeriesId !== null) {
+      return
+    }
+
+    const rows = ratingsBySeriesId[seriesId] ?? []
+
+    if (rows.length === 0) {
+      error('Для этой серии пока нет рейтинга')
+      return
+    }
+
+    const text = rows
+      .map(
+        (row) => `${row.rank}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
+      )
+      .join('\n')
+
+    setCopyingSeriesId(seriesId)
+
+    try {
+      await navigator.clipboard.writeText(text)
+      success('Рейтинг скопирован')
+    } catch (cause) {
+      console.error(cause)
+      error('Не удалось скопировать рейтинг')
+    } finally {
+      setCopyingSeriesId(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <h1 className="font-['Space_Grotesk'] text-2xl font-bold">Серии</h1>
 
       <div className="space-y-3 rounded-xl border border-[var(--line)] bg-white p-4 shadow-sm">
         <p className="text-sm text-[var(--text-muted)]">
-          Серии создаются автоматически каждый месяц. Здесь можно заранее
-          добавить новую серию или подправить существующую вручную.
+          Серии можно вести как помесячно, так и понедельно. Очки попадают в ту
+          серию, которая выбрана у турнира. Активная серия нужна как значение по
+          умолчанию для новых действий в админке.
         </p>
 
-        <div className="grid gap-4 md:grid-cols-3">
-        <FormField
-          label="Название"
-          inputProps={{ value: name, onChange: (event) => setName(event.target.value), placeholder: 'Новая серия' }}
-        />
-        <FormField
-          as="select"
-          label="Месяц"
-          options={[
-            { value: '', label: 'Выбери месяц' },
-            ...monthOptions,
-          ]}
-          selectProps={{ value: month, onChange: (event) => setMonth(event.target.value) }}
-        />
-
-        <div className="self-end">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => void handleCreate()}
-            disabled={isCreating}
-            className="w-full rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => fillCreateRange(getCurrentWeekRange())}
+            className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
           >
-            {isCreating ? 'Создаем...' : 'Создать'}
+            Эта неделя
+          </button>
+          <button
+            type="button"
+            onClick={() => fillCreateRange(getCurrentWeekRange(1))}
+            className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+          >
+            Следующая неделя
+          </button>
+          <button
+            type="button"
+            onClick={() => fillCreateRange(getCurrentMonthRange())}
+            className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+          >
+            Этот месяц
           </button>
         </div>
+
+        <div className="grid gap-4 md:grid-cols-4">
+          <FormField
+            label="Название"
+            inputProps={{
+              value: name,
+              onChange: (event) => setName(event.target.value),
+              placeholder: 'Мартовская 1 неделя',
+            }}
+          />
+          <FormField
+            label="Дата начала"
+            inputProps={{
+              type: 'date',
+              value: startDate,
+              onChange: (event) => setStartDate(event.target.value),
+            }}
+          />
+          <FormField
+            label="Дата конца"
+            inputProps={{
+              type: 'date',
+              value: endDate,
+              onChange: (event) => setEndDate(event.target.value),
+            }}
+          />
+
+          <div className="self-end">
+            <button
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={isCreating}
+              className="w-full rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isCreating ? 'Создаем...' : 'Создать'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -258,14 +360,16 @@ export function SeriesPage() {
               return (
                 <input
                   value={draft.name}
-                  onChange={(event) => patchSeriesDraft(row.id, { name: event.target.value })}
+                  onChange={(event) =>
+                    patchSeriesDraft(row.id, { name: event.target.value })
+                  }
                   className="w-full rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
                 />
               )
             },
           },
           {
-            header: 'Месяц',
+            header: 'Период',
             render: (row) => {
               const draft = {
                 ...seriesBaseDrafts[row.id],
@@ -273,25 +377,33 @@ export function SeriesPage() {
               }
 
               return (
-                <div className="space-y-1">
-                  <select
-                    value={draft.month}
-                    onChange={(event) =>
-                      patchSeriesDraft(row.id, {
-                        month: event.target.value,
-                      })
-                    }
-                    className="rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
-                  >
-                    <option value="">Выбери месяц</option>
-                    {monthOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-2">
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <input
+                      type="date"
+                      value={draft.startDate}
+                      onChange={(event) =>
+                        patchSeriesDraft(row.id, {
+                          startDate: event.target.value,
+                        })
+                      }
+                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
+                    />
+                    <input
+                      type="date"
+                      value={draft.endDate}
+                      onChange={(event) =>
+                        patchSeriesDraft(row.id, {
+                          endDate: event.target.value,
+                        })
+                      }
+                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
+                    />
+                  </div>
                   <p className="text-xs text-[var(--text-muted)]">
-                    {draft.month ? getMonthLabel(draft.month) : 'Месяц не выбран'}
+                    {draft.startDate && draft.endDate
+                      ? `${formatSeriesDate(draft.startDate)} - ${formatSeriesDate(draft.endDate)}`
+                      : 'Период не задан'}
                   </p>
                 </div>
               )
@@ -305,8 +417,24 @@ export function SeriesPage() {
                   Активная
                 </span>
               ) : (
-                <span className="text-sm text-[var(--text-muted)]">Неактивная</span>
+                <span className="text-sm text-[var(--text-muted)]">
+                  Неактивная
+                </span>
               ),
+          },
+          {
+            header: 'Рейтинг',
+            render: (row) => {
+              const ratingRows = ratingsBySeriesId[row.id] ?? []
+
+              return ratingRows.length > 0 ? (
+                <span className="text-sm text-[var(--text-primary)]">
+                  {ratingRows.length} игроков
+                </span>
+              ) : (
+                <span className="text-sm text-[var(--text-muted)]">Пусто</span>
+              )
+            },
           },
           {
             header: '',
@@ -324,12 +452,26 @@ export function SeriesPage() {
                   <button
                     type="button"
                     onClick={() => void handleActivate(row.id)}
-                    disabled={pendingActivateId === row.id || pendingSeriesId === row.id}
+                    disabled={
+                      pendingActivateId === row.id || pendingSeriesId === row.id
+                    }
                     className="rounded-lg bg-gray-900 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {pendingActivateId === row.id ? 'Активируем...' : 'Активировать'}
+                    {pendingActivateId === row.id
+                      ? 'Активируем...'
+                      : 'Активировать'}
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() => void handleCopyRating(row.id)}
+                  disabled={copyingSeriesId === row.id}
+                  className="rounded-lg border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-semibold text-[var(--text-primary)] transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {copyingSeriesId === row.id
+                    ? 'Копируем...'
+                    : 'Скопировать рейтинг'}
+                </button>
 
                 <button
                   type="button"

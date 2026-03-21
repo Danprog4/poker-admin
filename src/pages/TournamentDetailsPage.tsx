@@ -58,10 +58,12 @@ export function TournamentDetailsPage() {
   const tournamentId = Number(id)
 
   const {
+    activeSeries,
     state,
     getTournamentById,
     getTournamentParticipants,
     updateTournament,
+    finalizeTournament,
     deleteTournament,
     updateTournamentStatus,
     addRegistration,
@@ -95,6 +97,9 @@ export function TournamentDetailsPage() {
   const [pendingBadgeRegistrationId, setPendingBadgeRegistrationId] = useState<number | null>(null)
   const [pendingResultId, setPendingResultId] = useState<number | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isFinalizeDialogOpen, setIsFinalizeDialogOpen] = useState(false)
+  const [isFinalizingTournament, setIsFinalizingTournament] = useState(false)
+  const [finalizeSeriesId, setFinalizeSeriesId] = useState('none')
 
   // Local form state for tournament fields (no per-keystroke mutations)
   const [localName, setLocalName] = useState('')
@@ -441,6 +446,22 @@ export function TournamentDetailsPage() {
       .filter((item) => item.place > 0)
       .sort((a, b) => a.place - b.place)
 
+    if (rows.length === 0) {
+      error('Заполни хотя бы одно место, чтобы сохранить результаты')
+      return
+    }
+
+    const usedPlaces = new Set<number>()
+
+    for (const row of rows) {
+      if (usedPlaces.has(row.place)) {
+        error('У результатов не должно быть одинаковых мест')
+        return
+      }
+
+      usedPlaces.add(row.place)
+    }
+
     setIsSavingResults(true)
     const saved = await saveTournamentResults(tournament.id, rows)
     setIsSavingResults(false)
@@ -451,6 +472,91 @@ export function TournamentDetailsPage() {
     }
 
     success('Изменения применены')
+  }
+
+  const handleOpenFinalizeDialog = () => {
+    if (formDirty) {
+      error('Сначала сохрани изменения карточки турнира, потом заверши турнир')
+      return
+    }
+
+    if (state.series.length === 0) {
+      error('Сначала создай серию, чтобы начислить в неё очки')
+      return
+    }
+
+    const nextSeriesId =
+      localSeriesId !== 'none'
+        ? localSeriesId
+        : tournament.seriesId
+          ? String(tournament.seriesId)
+          : activeSeries
+            ? String(activeSeries.id)
+            : 'none'
+
+    setFinalizeSeriesId(nextSeriesId)
+    setIsFinalizeDialogOpen(true)
+  }
+
+  const handleFinalizeTournament = async () => {
+    if (isFinalizingTournament) {
+      return
+    }
+
+    if (finalizeSeriesId === 'none') {
+      error('Выбери серию, в которую должны попасть очки')
+      return
+    }
+
+    const rows = participants
+      .filter((item) => item.registration.status !== 'cancelled')
+      .map((item) => {
+        const draft = getResultDraft(item.user.id, item.result)
+
+        return {
+          userId: item.user.id,
+          place: draft.place,
+          isItm: draft.isItm,
+          points: draft.points,
+          bounty: draft.bounty,
+        }
+      })
+      .filter((item) => item.place > 0)
+      .sort((a, b) => a.place - b.place)
+
+    if (rows.length === 0) {
+      error('Заполни результаты перед завершением турнира')
+      return
+    }
+
+    const usedPlaces = new Set<number>()
+
+    for (const row of rows) {
+      if (usedPlaces.has(row.place)) {
+        error('У результатов не должно быть одинаковых мест')
+        return
+      }
+
+      usedPlaces.add(row.place)
+    }
+
+    setIsFinalizingTournament(true)
+    const finalized = await finalizeTournament(tournament.id, {
+      seriesId: Number(finalizeSeriesId),
+      results: rows,
+    })
+    setIsFinalizingTournament(false)
+
+    if (!finalized) {
+      error('Не удалось завершить турнир')
+      return
+    }
+
+    setLocalSeriesId(finalizeSeriesId)
+    setLocalStatus('completed')
+    setResultsDraft({})
+    setIsFinalizeDialogOpen(false)
+    success('Турнир завершён, результаты и очки сохранены')
   }
 
   const handleConfirmRegistration = async (registrationId: number) => {
@@ -1032,6 +1138,10 @@ export function TournamentDetailsPage() {
             <span>{PARTICIPANT_BADGES.regularClub} регуляр клуба</span>
             <span>{PARTICIPANT_BADGES.newPlayer} новый игрок</span>
           </div>
+          <p className="mt-3 text-sm text-[var(--text-muted)]">
+            Кнопка «Подтвердить» ниже подтверждает запись игрока, а не завершает
+            турнир. Завершение турнира находится в блоке результатов.
+          </p>
         </div>
 
         <DataTable
@@ -1169,14 +1279,30 @@ export function TournamentDetailsPage() {
 
       <section className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-['Space_Grotesk'] text-xl font-bold">Ручной ввод результатов</h2>
-          <button
-            type="button"
-            onClick={() => void handleCopyResults()}
-            className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
-          >
-            Скопировать список игроков
-          </button>
+          <div className="space-y-1">
+            <h2 className="font-['Space_Grotesk'] text-xl font-bold">Результаты и завершение</h2>
+            <p className="text-sm text-[var(--text-muted)]">
+              Очки уйдут в серию, выбранную у турнира при завершении. Если нужна
+              другая серия, её можно выбрать в окне завершения.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleCopyResults()}
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+            >
+              Скопировать список игроков
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenFinalizeDialog}
+              disabled={isFinalizingTournament}
+              className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isFinalizingTournament ? 'Завершаем...' : 'Завершить турнир'}
+            </button>
+          </div>
         </div>
 
         <DataTable
@@ -1334,6 +1460,57 @@ export function TournamentDetailsPage() {
         onClose={() => setIsDeleteDialogOpen(false)}
         onConfirm={() => void handleDeleteTournament()}
       />
+
+      {isFinalizeDialogOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-gray-950/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-xl border border-[var(--line)] bg-white p-6 shadow-2xl">
+            <h3 className="font-['Space_Grotesk'] text-lg font-bold text-[var(--text-primary)]">
+              Завершить турнир
+            </h3>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Система сохранит текущие результаты, привяжет турнир к выбранной
+              серии и переведёт его в статус «Завершён».
+            </p>
+
+            <div className="mt-4">
+              <FormField
+                as="select"
+                label="Серия для начисления очков"
+                options={[
+                  { value: 'none', label: 'Выбери серию' },
+                  ...state.series.map((item) => ({
+                    value: String(item.id),
+                    label: item.isActive ? `${item.name} (активная)` : item.name,
+                  })),
+                ]}
+                selectProps={{
+                  value: finalizeSeriesId,
+                  onChange: (event) => setFinalizeSeriesId(event.target.value),
+                }}
+              />
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsFinalizeDialogOpen(false)}
+                disabled={isFinalizingTournament}
+                className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleFinalizeTournament()}
+                disabled={isFinalizingTournament}
+                className="rounded-lg bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isFinalizingTournament ? 'Завершаем...' : 'Завершить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
