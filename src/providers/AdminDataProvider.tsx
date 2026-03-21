@@ -17,6 +17,7 @@ import type {
   CreateStatusInput,
   CreateTournamentInput,
   DashboardStats,
+  FinalizeTournamentInput,
   PointAdjustment,
   RegistrationStatus,
   SeriesRatingRow,
@@ -384,6 +385,10 @@ type AdminDataContextValue = {
   ) => number
   createTournament: (input: CreateTournamentInput) => Promise<boolean>
   updateTournament: (tournamentId: number, input: UpdateTournamentInput) => Promise<boolean>
+  finalizeTournament: (
+    tournamentId: number,
+    input: FinalizeTournamentInput,
+  ) => Promise<boolean>
   deleteTournament: (tournamentId: number) => Promise<boolean>
   updateTournamentStatus: (tournamentId: number, status: TournamentStatus) => Promise<boolean>
   addRegistration: (tournamentId: number, userId: number) => Promise<boolean>
@@ -455,6 +460,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
 
   const createTournamentMutation = trpc.admin.tournaments.create.useMutation()
   const updateTournamentMutation = trpc.admin.tournaments.update.useMutation()
+  const finalizeTournamentMutation = trpc.admin.tournaments.finalize.useMutation()
   const deleteTournamentMutation = trpc.admin.tournaments.delete.useMutation()
   const updateTournamentStatusMutation = trpc.admin.tournaments.updateStatus.useMutation()
 
@@ -816,6 +822,21 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       return result !== null
     },
     [runAndRefresh, updateTournamentMutation],
+  )
+
+  const finalizeTournament = useCallback(
+    async (tournamentId: number, input: FinalizeTournamentInput) => {
+      const result = await runAndRefresh(() =>
+        finalizeTournamentMutation.mutateAsync({
+          tournamentId,
+          seriesId: input.seriesId,
+          results: input.results,
+        }),
+      )
+
+      return result !== null
+    },
+    [finalizeTournamentMutation, runAndRefresh],
   )
 
   const deleteTournament = useCallback(
@@ -1274,6 +1295,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       countBroadcastRecipients,
       createTournament,
       updateTournament,
+      finalizeTournament,
       deleteTournament,
       updateTournamentStatus,
       addRegistration,
@@ -1328,6 +1350,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       countBroadcastRecipients,
       createTournament,
       updateTournament,
+      finalizeTournament,
       deleteTournament,
       updateTournamentStatus,
       addRegistration,

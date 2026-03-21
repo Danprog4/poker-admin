@@ -149,6 +149,11 @@ export type UpdateTournamentInput = Partial<CreateTournamentInput> & {
   status?: TournamentStatus
 }
 
+export type FinalizeTournamentInput = {
+  seriesId: number
+  results: TournamentResultInput[]
+}
+
 export type CreateSeriesInput = {
   name: string
   startDate: string
