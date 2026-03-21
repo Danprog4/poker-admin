@@ -272,6 +272,40 @@ export function TournamentDetailsPage() {
       : PARTICIPANT_BADGES.newPlayer
   }
 
+  const buildParticipantsClipboardText = () => {
+    const rows = participants
+      .filter((participant) => participant.registration.status !== 'cancelled')
+      .sort(
+        (left, right) =>
+          left.registration.registrationNumber - right.registration.registrationNumber,
+      )
+
+    if (rows.length === 0) {
+      return null
+    }
+
+    const legend = [
+      `${PARTICIPANT_BADGES.previousWinner} — победитель прошлого турнира`,
+      `${PARTICIPANT_BADGES.topRating} — топ рейтинга`,
+      `${PARTICIPANT_BADGES.regularClub} — регуляр клуба`,
+      `${PARTICIPANT_BADGES.newPlayer} — новый игрок`,
+    ].join('\n')
+
+    const list = rows
+      .map((participant, index) => {
+        const label =
+          participant.user.login?.trim() ||
+          participant.user.name?.trim() ||
+          `Игрок ${participant.user.id}`
+        const badge = getParticipantBadge(participant)
+
+        return `${index + 1}. ${label}${badge ? ` ${badge}` : ''}`
+      })
+      .join('\n')
+
+    return `${legend}\n\nСписок игроков\n\n${list}`
+  }
+
   const getResultDraft = (
     userId: number,
     result: TournamentResult | null,
@@ -649,38 +683,12 @@ export function TournamentDetailsPage() {
   }
 
   const handleCopyResults = async () => {
-    const rows = participants
-      .filter((participant) => participant.registration.status !== 'cancelled')
-      .sort(
-        (left, right) =>
-          left.registration.registrationNumber - right.registration.registrationNumber,
-      )
+    const text = buildParticipantsClipboardText()
 
-    if (rows.length === 0) {
+    if (!text) {
       error('Пока нет участников для копирования')
       return
     }
-
-    const legend = [
-      `${PARTICIPANT_BADGES.previousWinner} — победитель прошлого турнира`,
-      `${PARTICIPANT_BADGES.topRating} — топ рейтинга`,
-      `${PARTICIPANT_BADGES.regularClub} — регуляр клуба`,
-      `${PARTICIPANT_BADGES.newPlayer} — новый игрок`,
-    ].join('\n')
-
-    const list = rows
-      .map((participant, index) => {
-        const label =
-          participant.user.login?.trim() ||
-          participant.user.name?.trim() ||
-          `Игрок ${participant.user.id}`
-        const badge = getParticipantBadge(participant)
-
-        return `${index + 1}. ${label}${badge ? ` ${badge}` : ''}`
-      })
-      .join('\n')
-
-    const text = `${legend}\n\nСписок игроков\n\n${list}`
 
     try {
       await navigator.clipboard.writeText(text)
@@ -690,6 +698,10 @@ export function TournamentDetailsPage() {
       error('Не удалось скопировать список игроков')
     }
   }
+
+  const isBeforeTournamentStart =
+    tournament.status === 'upcoming' &&
+    new Date(tournament.date).valueOf() > Date.now()
 
   return (
     <div className="space-y-6">
@@ -986,6 +998,15 @@ export function TournamentDetailsPage() {
           <h2 className="font-['Space_Grotesk'] text-xl font-bold">Участники</h2>
 
           <div className="flex w-full flex-wrap items-end gap-2 md:w-auto">
+            {isBeforeTournamentStart ? (
+              <button
+                type="button"
+                onClick={() => void handleCopyResults()}
+                className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+              >
+                Скопировать участников
+              </button>
+            ) : null}
             <div className="min-w-56">
               <SearchableSelect
                 label="Добавить пользователя"
