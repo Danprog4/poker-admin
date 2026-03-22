@@ -4,6 +4,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable } from '../components/DataTable'
 import { FormField } from '../components/FormField'
 import { formatDateInput } from '../lib/date'
+import { trpc } from '../lib/trpc'
 import { useAdminData } from '../providers/useAdminData'
 import { useToast } from '../providers/ToastProvider'
 
@@ -84,6 +85,7 @@ export function SeriesPage() {
     deleteSeries,
   } = useAdminData()
   const { success, error } = useToast()
+  const globalRatingQuery = trpc.admin.ratings.getGlobal.useQuery()
 
   const [name, setName] = useState('')
   const [startDate, setStartDate] = useState('')
@@ -277,42 +279,10 @@ export function SeriesPage() {
       return
     }
 
-    const totals = new Map<number, { points: number; bounty: number }>()
-
-    for (const rows of Object.values(ratingsBySeriesId)) {
-      for (const row of rows) {
-        const current = totals.get(row.userId) ?? { points: 0, bounty: 0 }
-
-        totals.set(row.userId, {
-          points: current.points + row.totalPoints,
-          bounty: current.bounty + row.totalBounty,
-        })
-      }
-    }
-
-    const lines = Array.from(totals.entries())
-      .map(([userId, totalsRow]) => ({
-        userId,
-        login:
-          state.users.find((item) => item.id === userId)?.login ?? `Игрок ${userId}`,
-        totalPoints: totalsRow.points,
-        totalBounty: totalsRow.bounty,
-      }))
-      .sort((left, right) => {
-        if (right.totalPoints !== left.totalPoints) {
-          return right.totalPoints - left.totalPoints
-        }
-
-        if (right.totalBounty !== left.totalBounty) {
-          return right.totalBounty - left.totalBounty
-        }
-
-        return left.login.localeCompare(right.login, 'ru')
-      })
-      .map(
-        (row, index) =>
-          `${index + 1}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
-      )
+    const rows = globalRatingQuery.data ?? []
+    const lines = rows.map(
+      (row) => `${row.rank}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
+    )
 
     if (lines.length === 0) {
       error('Глобальный рейтинг пока пуст')
