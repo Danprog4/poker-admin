@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable } from '../components/DataTable'
+import type { SeriesRatingRow } from '../lib/admin-models'
 import { FormField } from '../components/FormField'
 import { formatDateInput } from '../lib/date'
 import { trpc } from '../lib/trpc'
@@ -279,7 +280,7 @@ export function SeriesPage() {
       return
     }
 
-    const serverRows = globalRatingQuery.data ?? []
+    const serverRows: SeriesRatingRow[] = globalRatingQuery.data ?? []
 
     const fallbackLines = (() => {
       const totals = new Map<number, { points: number; bounty: number }>()
@@ -303,6 +304,7 @@ export function SeriesPage() {
           totalPoints: totalsRow.points,
           totalBounty: totalsRow.bounty,
         }))
+        .filter((row) => row.totalPoints !== 0 || row.totalBounty !== 0)
         .sort((left, right) => {
           if (right.totalPoints !== left.totalPoints) {
             return right.totalPoints - left.totalPoints
@@ -322,10 +324,12 @@ export function SeriesPage() {
 
     const lines =
       serverRows.length > 0
-        ? serverRows.map(
-            (row) =>
-              `${row.rank}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
-          )
+        ? serverRows
+            .filter((row) => row.totalPoints !== 0 || row.totalBounty !== 0)
+            .map(
+              (row) =>
+                `${row.rank}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
+            )
         : fallbackLines
 
     if (lines.length === 0) {

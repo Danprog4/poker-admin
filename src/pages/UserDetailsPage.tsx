@@ -131,12 +131,16 @@ export function UserDetailsPage() {
       }
     }
 
-    const statusUpdated = await setUserStatus(user.id, statusId === 'none' ? null : Number(statusId))
+    const nextStatusId = statusId === 'none' ? null : Number(statusId)
 
-    if (!statusUpdated) {
-      setIsSavingProfile(false)
-      error('Не удалось обновить статус пользователя')
-      return
+    if (nextStatusId !== (user.statusId ?? null)) {
+      const statusUpdated = await setUserStatus(user.id, nextStatusId)
+
+      if (!statusUpdated) {
+        setIsSavingProfile(false)
+        error('Не удалось обновить статус пользователя')
+        return
+      }
     }
 
     const currentPrepayMode = user.isPrepayExempt
