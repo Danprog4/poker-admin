@@ -1136,6 +1136,8 @@ export function TournamentDetailsPage() {
                 value={newUserId}
                 onChange={handleSelectUser}
                 placeholder="Поиск по нику или имени..."
+                disabled={isAddingUser}
+                disabledLabel="Добавляем пользователя..."
               />
             </div>
           </div>

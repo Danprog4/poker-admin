@@ -11,6 +11,8 @@ type SearchableSelectProps = {
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  disabled?: boolean
+  disabledLabel?: string
 }
 
 export function SearchableSelect({
@@ -19,6 +21,8 @@ export function SearchableSelect({
   value,
   onChange,
   placeholder = 'Поиск...',
+  disabled = false,
+  disabledLabel,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -57,11 +61,20 @@ export function SearchableSelect({
         <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">{label}</span>
         <button
           type="button"
-          onClick={() => setOpen((prev) => !prev)}
-          className="flex w-full items-center justify-between rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-left text-sm transition focus:border-[var(--accent)] focus:ring-2 focus:ring-indigo-100 focus:outline-none"
+          onClick={() => {
+            if (disabled) {
+              return
+            }
+
+            setOpen((prev) => !prev)
+          }}
+          disabled={disabled}
+          className="flex w-full items-center justify-between rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-left text-sm transition focus:border-[var(--accent)] focus:ring-2 focus:ring-indigo-100 focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-50 disabled:opacity-70"
         >
           <span className={selectedLabel ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}>
-            {selectedLabel || placeholder}
+            {disabled
+              ? (disabledLabel ?? selectedLabel ?? placeholder)
+              : (selectedLabel || placeholder)}
           </span>
           <svg className="h-4 w-4 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -69,7 +82,7 @@ export function SearchableSelect({
         </button>
       </label>
 
-      {open ? (
+      {open && !disabled ? (
         <div className="absolute z-20 mt-1 w-full rounded-lg border border-[var(--line)] bg-white shadow-lg">
           <div className="border-b border-[var(--line)] p-2">
             <input
