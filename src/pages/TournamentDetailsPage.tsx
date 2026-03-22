@@ -15,7 +15,7 @@ import type {
   TournamentResult,
   TournamentStatus,
 } from '../lib/admin-models'
-import { formatDateTime, formatDateTimeInput } from '../lib/date'
+import { formatDateTimeInput } from '../lib/date'
 import { fileToDataUrl } from '../lib/imageUpload'
 import { replaceLeadingZeroOnFocus } from '../lib/number-input'
 import {
@@ -67,7 +67,6 @@ export function TournamentDetailsPage() {
     updateTournamentStatus,
     addRegistration,
     cancelRegistration,
-    confirmRegistration,
     updateRegistrationBadges,
     moveFromWaitlist,
     setUserPrepay,
@@ -82,6 +81,14 @@ export function TournamentDetailsPage() {
   const participants = useMemo(
     () => getTournamentParticipants(tournamentId),
     [getTournamentParticipants, tournamentId],
+  )
+  const orderedParticipants = useMemo(
+    () =>
+      participants.map((participant, index) => ({
+        ...participant,
+        displayOrder: index + 1,
+      })),
+    [participants],
   )
 
   const [newUserId, setNewUserId] = useState('none')
@@ -346,6 +353,21 @@ export function TournamentDetailsPage() {
     }))
   }
 
+  const hasAnyResultData = (
+    userId: number,
+    result: TournamentResult | null,
+  ) => {
+    const draft = getResultDraft(userId, result)
+
+    return (
+      draft.place > 0 ||
+      draft.points > 0 ||
+      draft.bounty > 0 ||
+      draft.isItm ||
+      result !== null
+    )
+  }
+
   const activeParticipantIds = new Set(
     participants
       .filter((item) => item.registration.status !== 'cancelled')
@@ -563,23 +585,6 @@ export function TournamentDetailsPage() {
     setResultsDraft({})
     setIsFinalizeDialogOpen(false)
     success('Турнир завершён, результаты и очки сохранены')
-  }
-
-  const handleConfirmRegistration = async (registrationId: number) => {
-    if (pendingRegistrationId !== null) {
-      return
-    }
-
-    setPendingRegistrationId(registrationId)
-    const confirmed = await confirmRegistration(registrationId)
-    setPendingRegistrationId(null)
-
-    if (confirmed) {
-      success('Изменения применены')
-      return
-    }
-
-    error('Не удалось подтвердить участие')
   }
 
   const handleMoveFromWaitlist = async (registrationId: number) => {
@@ -814,6 +819,8 @@ export function TournamentDetailsPage() {
   const isBeforeTournamentStart =
     tournament.status === 'upcoming' &&
     new Date(tournament.date).valueOf() > Date.now()
+  const isTournamentCompleted =
+    tournament.status === 'completed' || localStatus === 'completed'
 
   return (
     <div className="space-y-6">
@@ -1102,7 +1109,7 @@ export function TournamentDetailsPage() {
         <button
           type="button"
           onClick={handleSaveTournament}
-          disabled={!formDirty || isSavingTournament}
+          disabled={!formDirty || isSavingTournament || isTournamentCompleted}
           className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {isSavingTournament ? 'Сохраняем...' : 'Сохранить изменения'}
@@ -1150,17 +1157,13 @@ export function TournamentDetailsPage() {
             <span>{PARTICIPANT_BADGES.regularClub} регуляр клуба</span>
             <span>{PARTICIPANT_BADGES.newPlayer} новый игрок</span>
           </div>
-          <p className="mt-3 text-sm text-[var(--text-muted)]">
-            Кнопка «Подтвердить» ниже подтверждает запись игрока, а не завершает
-            турнир. Завершение турнира находится в блоке результатов.
-          </p>
         </div>
 
         <DataTable
-          rows={participants}
+          rows={orderedParticipants}
           getRowKey={(row) => row.registration.id}
           columns={[
-            { header: '№', render: (row) => row.registration.registrationNumber },
+            { header: '№', render: (row) => row.displayOrder },
             { header: 'Ник', render: (row) => row.user.login },
             { header: 'Имя', render: (row) => row.user.name },
             {
@@ -1219,49 +1222,9 @@ export function TournamentDetailsPage() {
               },
             },
             {
-              header: 'Подтверждение',
-              render: (row) => {
-                if (row.registration.confirmedAt) {
-                  return (
-                    <span className="text-xs text-emerald-700">{formatDateTime(row.registration.confirmedAt)}</span>
-                  )
-                }
-
-                return (
-                  <button
-                    type="button"
-                    onClick={() => void handleConfirmRegistration(row.registration.id)}
-                    disabled={pendingRegistrationId !== null}
-                    className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-xs font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {pendingRegistrationId === row.registration.id ? 'Подтверждаем...' : 'Подтвердить'}
-                  </button>
-                )
-              },
-            },
-            {
               header: '',
               render: (row) => (
                 <div className="flex flex-wrap gap-1">
-                  {row.user.isPrepayRequired ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleClearPrepay(row.user.id)}
-                      disabled={pendingRegistrationId !== null}
-                      className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {pendingRegistrationId === row.user.id ? 'Убираем...' : 'Убрать из предоплаты'}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void handleSetPrepay(row.user.id, row.user.login)}
-                      disabled={pendingRegistrationId !== null}
-                      className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {pendingRegistrationId === row.user.id ? 'Добавляем...' : 'В предоплату'}
-                    </button>
-                  )}
                   {row.registration.status === 'waitlist' ? (
                     <button
                       type="button"
@@ -1309,7 +1272,7 @@ export function TournamentDetailsPage() {
             <button
               type="button"
               onClick={handleOpenFinalizeDialog}
-              disabled={isFinalizingTournament}
+              disabled={isFinalizingTournament || isTournamentCompleted}
               className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isFinalizingTournament ? 'Завершаем...' : 'Завершить турнир'}
@@ -1318,122 +1281,171 @@ export function TournamentDetailsPage() {
         </div>
 
         <DataTable
-          rows={participants.filter((item) => item.registration.status !== 'cancelled')}
+          rows={participants}
           getRowKey={(row) => row.user.id}
-          emptyLabel="Нет активных участников"
+          emptyLabel="Нет участников"
           columns={[
             { header: 'Игрок', render: (row) => row.user.login },
             {
+              header: 'Регистрация',
+              render: (row) => <StatusBadge status={row.registration.status} />,
+            },
+            {
               header: 'Место',
-              render: (row) => (
-                <input
-                  type="number"
-                  min={0}
-                  value={getResultDraft(row.user.id, row.result).place}
-                  onFocus={replaceLeadingZeroOnFocus}
-                  onChange={(event) =>
-                    setResultField(
-                      row.user.id,
-                      row.result,
-                      'place',
-                      Number(event.target.value || 0),
-                    )
-                  }
-                  className="w-20 rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
-                />
-              ),
+              render: (row) => {
+                const isRowDisabled = row.user.isPrepayRequired || isTournamentCompleted
+
+                return (
+                  <input
+                    type="number"
+                    min={0}
+                    value={getResultDraft(row.user.id, row.result).place}
+                    onFocus={replaceLeadingZeroOnFocus}
+                    onChange={(event) =>
+                      setResultField(
+                        row.user.id,
+                        row.result,
+                        'place',
+                        Number(event.target.value || 0),
+                      )
+                    }
+                    disabled={isRowDisabled}
+                    className="w-20 rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-[var(--text-muted)]"
+                  />
+                )
+              },
             },
             {
               header: 'ITM',
-              render: (row) => (
-                <input
-                  type="checkbox"
-                  checked={getResultDraft(row.user.id, row.result).isItm}
-                  onChange={(event) =>
-                    setResultField(
-                      row.user.id,
-                      row.result,
-                      'isItm',
-                      event.target.checked,
-                    )
-                  }
-                  className="h-4 w-4 rounded border-[var(--line)] text-[var(--accent)] focus:ring-[var(--accent)]"
-                />
-              ),
+              render: (row) => {
+                const isRowDisabled = row.user.isPrepayRequired || isTournamentCompleted
+
+                return (
+                  <input
+                    type="checkbox"
+                    checked={getResultDraft(row.user.id, row.result).isItm}
+                    onChange={(event) =>
+                      setResultField(
+                        row.user.id,
+                        row.result,
+                        'isItm',
+                        event.target.checked,
+                      )
+                    }
+                    disabled={isRowDisabled}
+                    className="h-4 w-4 rounded border-[var(--line)] text-[var(--accent)] focus:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                )
+              },
             },
             {
               header: 'Очки',
-              render: (row) => (
-                <input
-                  type="number"
-                  value={getResultDraft(row.user.id, row.result).points}
-                  onFocus={replaceLeadingZeroOnFocus}
-                  onChange={(event) =>
-                    setResultField(
-                      row.user.id,
-                      row.result,
-                      'points',
-                      Number(event.target.value || 0),
-                    )
-                  }
-                  className="w-24 rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
-                />
-              ),
+              render: (row) => {
+                const isRowDisabled = row.user.isPrepayRequired || isTournamentCompleted
+
+                return (
+                  <input
+                    type="number"
+                    value={getResultDraft(row.user.id, row.result).points}
+                    onFocus={replaceLeadingZeroOnFocus}
+                    onChange={(event) =>
+                      setResultField(
+                        row.user.id,
+                        row.result,
+                        'points',
+                        Number(event.target.value || 0),
+                      )
+                    }
+                    disabled={isRowDisabled}
+                    className="w-24 rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-[var(--text-muted)]"
+                  />
+                )
+              },
             },
             {
               header: 'Баунти',
-              render: (row) => (
-                <input
-                  type="number"
-                  value={getResultDraft(row.user.id, row.result).bounty}
-                  onFocus={replaceLeadingZeroOnFocus}
-                  onChange={(event) =>
-                    setResultField(
-                      row.user.id,
-                      row.result,
-                      'bounty',
-                      Number(event.target.value || 0),
-                    )
-                  }
-                  className="w-24 rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
-                />
-              ),
+              render: (row) => {
+                const isRowDisabled = row.user.isPrepayRequired || isTournamentCompleted
+
+                return (
+                  <input
+                    type="number"
+                    value={getResultDraft(row.user.id, row.result).bounty}
+                    onFocus={replaceLeadingZeroOnFocus}
+                    onChange={(event) =>
+                      setResultField(
+                        row.user.id,
+                        row.result,
+                        'bounty',
+                        Number(event.target.value || 0),
+                      )
+                    }
+                    disabled={isRowDisabled}
+                    className="w-24 rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-[var(--text-muted)]"
+                  />
+                )
+              },
             },
             {
               header: '',
               render: (row) => {
-                if (!row.result) {
-                  return <span className="text-xs text-[var(--text-muted)]">—</span>
-                }
-
                 const currentResult = row.result
                 const draft = getResultDraft(row.user.id, row.result)
+                const shouldHidePrepay = hasAnyResultData(row.user.id, row.result)
 
                 return (
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void handleUpdateResult(currentResult.id, {
-                          place: draft.place,
-                          isItm: draft.isItm,
-                          points: draft.points,
-                          bounty: draft.bounty,
-                        })
-                      }
-                      disabled={pendingResultId !== null}
-                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {pendingResultId === currentResult.id ? 'Сохраняем...' : 'Обновить'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteResult(currentResult.id)}
-                      disabled={pendingResultId !== null}
-                      className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {pendingResultId === currentResult.id ? 'Удаляем...' : 'Удалить'}
-                    </button>
+                  <div className="flex min-h-8 min-w-[18rem] flex-wrap items-center gap-1">
+                    {shouldHidePrepay ? null : row.user.isPrepayRequired ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleClearPrepay(row.user.id)}
+                        disabled={pendingRegistrationId !== null}
+                        className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {pendingRegistrationId === row.user.id ? 'Убираем...' : 'Убрать из предоплаты'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleSetPrepay(row.user.id, row.user.login)}
+                        disabled={pendingRegistrationId !== null}
+                        className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {pendingRegistrationId === row.user.id ? 'Добавляем...' : 'В предоплату'}
+                      </button>
+                    )}
+                    {currentResult ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleUpdateResult(currentResult.id, {
+                              place: draft.place,
+                              isItm: draft.isItm,
+                              points: draft.points,
+                              bounty: draft.bounty,
+                            })
+                          }
+                          disabled={pendingResultId !== null}
+                          className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {pendingResultId === currentResult.id ? 'Сохраняем...' : 'Обновить'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteResult(currentResult.id)}
+                          disabled={pendingResultId !== null}
+                          className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {pendingResultId === currentResult.id ? 'Удаляем...' : 'Удалить'}
+                        </button>
+                      </>
+                    ) : null}
+                    {!currentResult && shouldHidePrepay ? (
+                      <span className="inline-flex min-h-8 items-center rounded-lg px-2.5 py-1 text-xs font-medium text-[var(--text-muted)]">
+                        Участник отмечен по результатам
+                      </span>
+                    ) : null}
                   </div>
                 )
               },
@@ -1444,7 +1456,7 @@ export function TournamentDetailsPage() {
         <button
           type="button"
           onClick={() => void handleSaveResults()}
-          disabled={isSavingResults}
+          disabled={isSavingResults || isTournamentCompleted}
           className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isSavingResults ? 'Сохраняем...' : 'Сохранить результаты'}
