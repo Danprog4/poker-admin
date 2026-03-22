@@ -37,12 +37,11 @@ type EditableResult = {
 const statusOptions: Array<{ value: TournamentStatus; label: string }> = [
   { value: 'upcoming', label: 'Предстоит' },
   { value: 'ongoing', label: 'Идёт' },
-  { value: 'completed', label: 'Завершён' },
   { value: 'cancelled', label: 'Отменён' },
 ]
 
-function getDefaultPrepayMessage(login: string) {
-  return `Админ добавил вас в список предоплаты, ${login}. Напишите менеджеру, чтобы закрыть вопрос с оплатой и снова записываться на турниры без ограничений.`
+function getDefaultPrepayMessage(_login: string) {
+  return 'Из-за отмены записи менее чем за 2 часа до турнира / неявки теперь для вас доступна запись только по предоплате. Напишите менеджеру.'
 }
 
 const PARTICIPANT_BADGES = {
@@ -147,6 +146,13 @@ export function TournamentDetailsPage() {
 
   const selectedMedalLabel =
     medalOptions.find((item) => item.value === localMedalId)?.label ?? ''
+  const statusSelectOptions =
+    localStatus === 'completed'
+      ? [
+          ...statusOptions,
+          { value: 'completed' as const, label: 'Завершён' },
+        ]
+      : statusOptions
 
   const existingCoverOptions = useMemo(() => {
     const seen = new Set<string>()
@@ -888,9 +894,13 @@ export function TournamentDetailsPage() {
           <FormField
             as="select"
             label="Статус"
-            options={statusOptions.map((item) => ({ value: item.value, label: item.label }))}
+            options={statusSelectOptions.map((item) => ({
+              value: item.value,
+              label: item.label,
+            }))}
             selectProps={{
               value: localStatus,
+              disabled: localStatus === 'completed',
               onChange: (event) => { setLocalStatus(event.target.value as TournamentStatus); markDirty() },
             }}
           />

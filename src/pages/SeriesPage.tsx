@@ -94,6 +94,7 @@ export function SeriesPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [pendingSeriesId, setPendingSeriesId] = useState<number | null>(null)
   const [copyingSeriesId, setCopyingSeriesId] = useState<number | null>(null)
+  const [isCopyingGlobalRating, setIsCopyingGlobalRating] = useState(false)
   const [seriesDraftEdits, setSeriesDraftEdits] = useState<
     Record<number, Partial<SeriesDraft>>
   >({})
@@ -271,9 +272,81 @@ export function SeriesPage() {
     }
   }
 
+  const handleCopyGlobalRating = async () => {
+    if (isCopyingGlobalRating) {
+      return
+    }
+
+    const totals = new Map<number, { points: number; bounty: number }>()
+
+    for (const rows of Object.values(ratingsBySeriesId)) {
+      for (const row of rows) {
+        const current = totals.get(row.userId) ?? { points: 0, bounty: 0 }
+
+        totals.set(row.userId, {
+          points: current.points + row.totalPoints,
+          bounty: current.bounty + row.totalBounty,
+        })
+      }
+    }
+
+    const lines = Array.from(totals.entries())
+      .map(([userId, totalsRow]) => ({
+        userId,
+        login:
+          state.users.find((item) => item.id === userId)?.login ?? `Игрок ${userId}`,
+        totalPoints: totalsRow.points,
+        totalBounty: totalsRow.bounty,
+      }))
+      .sort((left, right) => {
+        if (right.totalPoints !== left.totalPoints) {
+          return right.totalPoints - left.totalPoints
+        }
+
+        if (right.totalBounty !== left.totalBounty) {
+          return right.totalBounty - left.totalBounty
+        }
+
+        return left.login.localeCompare(right.login, 'ru')
+      })
+      .map(
+        (row, index) =>
+          `${index + 1}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
+      )
+
+    if (lines.length === 0) {
+      error('Глобальный рейтинг пока пуст')
+      return
+    }
+
+    setIsCopyingGlobalRating(true)
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'))
+      success('Глобальный рейтинг скопирован')
+    } catch (cause) {
+      console.error(cause)
+      error('Не удалось скопировать глобальный рейтинг')
+    } finally {
+      setIsCopyingGlobalRating(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <h1 className="font-['Space_Grotesk'] text-2xl font-bold">Серии</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-['Space_Grotesk'] text-2xl font-bold">Серии</h1>
+        <button
+          type="button"
+          onClick={() => void handleCopyGlobalRating()}
+          disabled={isCopyingGlobalRating}
+          className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isCopyingGlobalRating
+            ? 'Копируем глобальный рейтинг...'
+            : 'Скопировать глобальный рейтинг'}
+        </button>
+      </div>
 
       <div className="space-y-3 rounded-xl border border-[var(--line)] bg-white p-4 shadow-sm">
         <p className="text-sm text-[var(--text-muted)]">

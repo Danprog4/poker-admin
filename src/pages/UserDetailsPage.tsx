@@ -10,8 +10,8 @@ import { formatDateTime } from '../lib/date'
 import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
 
-function getDefaultPrepayMessage(login: string) {
-  return `Админ добавил вас в список предоплаты, ${login}. Напишите менеджеру, чтобы закрыть вопрос с оплатой и снова записываться на турниры без ограничений.`
+function getDefaultPrepayMessage(_login: string) {
+  return `Из-за отмены записи менее чем за 2 часа до турнира / неявки теперь для вас доступна запись только по предоплате. Напишите менеджеру.`
 }
 
 export function UserDetailsPage() {
