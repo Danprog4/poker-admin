@@ -6,7 +6,6 @@ import {
   type ChangeEvent,
 } from 'react'
 
-import { DataTable } from '../components/DataTable'
 import { FormField } from '../components/FormField'
 import { fileToDataUrl } from '../lib/imageUpload'
 import { trpc } from '../lib/trpc'
@@ -421,18 +420,6 @@ function NotificationFlowEditor({
           </div>
         </div>
       </div>
-
-      <DataTable
-        rows={templates}
-        getRowKey={(row) => row.id}
-        emptyLabel={templatesQuery.isLoading ? 'Загрузка...' : 'Версий шаблона пока нет'}
-        columns={[
-          { header: 'Версия', render: (row) => `v${row.version}` },
-          { header: 'Заголовок', render: (row) => row.title ?? '—' },
-          { header: 'Картинка', render: (row) => (row.imageUrl ? 'есть' : '—') },
-          { header: 'Статус', render: (row) => (row.isActive ? 'активен' : 'архив') },
-        ]}
-      />
     </section>
   )
 }
