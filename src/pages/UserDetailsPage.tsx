@@ -316,18 +316,24 @@ export function UserDetailsPage() {
           при поздней отмене записи система не переведёт его в лист предоплаты.
         </p>
 
-        <div className="mt-4">
-          <FormField
-            as="textarea"
-            label="Сообщение для бота при предоплате"
-            textareaProps={{
-              rows: 4,
-              value: prepayMessage,
-              onChange: (event) => setPrepayMessageDraft(event.target.value),
-              placeholder: 'Админ добавил вас в список предоплаты...',
-            }}
-          />
-        </div>
+        {prepay === 'required' ? (
+          <div className="mt-4">
+            <FormField
+              as="textarea"
+              label="Сообщение для бота при предоплате"
+              textareaProps={{
+                rows: 4,
+                value: prepayMessage,
+                onChange: (event) => setPrepayMessageDraft(event.target.value),
+                placeholder: 'Админ добавил вас в список предоплаты...',
+              }}
+            />
+          </div>
+        ) : prepay === 'optional' ? (
+          <p className="mt-4 rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] px-4 py-3 text-sm text-[var(--text-muted)]">
+            Если убрать пользователя из предоплаты, push в бота придет автоматически.
+          </p>
+        ) : null}
 
         <div className="mt-4">
           <button
