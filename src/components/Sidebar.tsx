@@ -1,5 +1,5 @@
-import { NavLink } from "react-router-dom";
 import { clsx } from "clsx";
+import { NavLink } from "react-router-dom";
 
 const navItems = [
   { to: "/", label: "Дашборд", icon: "/" },
@@ -12,9 +12,19 @@ const navItems = [
   { to: "/faq", label: "FAQ" },
 ];
 
-export function Sidebar() {
+type SidebarProps = {
+  className?: string;
+  onNavigate?: () => void;
+};
+
+export function Sidebar({ className, onNavigate }: SidebarProps) {
   return (
-    <aside className="sticky top-0 hidden h-screen w-64 flex-shrink-0 flex-col border-r border-gray-800 bg-[var(--bg-sidebar)] text-white md:flex">
+    <aside
+      className={clsx(
+        "flex h-full w-72 flex-shrink-0 flex-col bg-[var(--bg-sidebar)] text-white",
+        className,
+      )}
+    >
       <div className="border-b border-gray-700/60 px-5 py-5">
         <p className="font-['Space_Grotesk'] text-lg font-bold tracking-tight">
           OverBet CRM
@@ -22,15 +32,16 @@ export function Sidebar() {
         <p className="mt-0.5 text-xs text-gray-400">Управление клубом</p>
       </div>
 
-      <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === "/"}
+            onClick={onNavigate}
             className={({ isActive }) =>
               clsx(
-                "block rounded-lg px-3 py-2 text-sm transition-colors",
+                "block rounded-lg px-3 py-2.5 text-sm transition-colors",
                 isActive
                   ? "bg-indigo-500/20 font-semibold text-indigo-300"
                   : "text-gray-400 hover:bg-white/5 hover:text-gray-200",
