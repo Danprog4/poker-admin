@@ -279,10 +279,54 @@ export function SeriesPage() {
       return
     }
 
-    const rows = globalRatingQuery.data ?? []
-    const lines = rows.map(
-      (row) => `${row.rank}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
-    )
+    const serverRows = globalRatingQuery.data ?? []
+
+    const fallbackLines = (() => {
+      const totals = new Map<number, { points: number; bounty: number }>()
+
+      for (const rows of Object.values(ratingsBySeriesId)) {
+        for (const row of rows) {
+          const current = totals.get(row.userId) ?? { points: 0, bounty: 0 }
+
+          totals.set(row.userId, {
+            points: current.points + row.totalPoints,
+            bounty: current.bounty + row.totalBounty,
+          })
+        }
+      }
+
+      return Array.from(totals.entries())
+        .map(([userId, totalsRow]) => ({
+          userId,
+          login:
+            state.users.find((item) => item.id === userId)?.login ?? `Игрок ${userId}`,
+          totalPoints: totalsRow.points,
+          totalBounty: totalsRow.bounty,
+        }))
+        .sort((left, right) => {
+          if (right.totalPoints !== left.totalPoints) {
+            return right.totalPoints - left.totalPoints
+          }
+
+          if (right.totalBounty !== left.totalBounty) {
+            return right.totalBounty - left.totalBounty
+          }
+
+          return left.login.localeCompare(right.login, 'ru')
+        })
+        .map(
+          (row, index) =>
+            `${index + 1}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
+        )
+    })()
+
+    const lines =
+      serverRows.length > 0
+        ? serverRows.map(
+            (row) =>
+              `${row.rank}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
+          )
+        : fallbackLines
 
     if (lines.length === 0) {
       error('Глобальный рейтинг пока пуст')

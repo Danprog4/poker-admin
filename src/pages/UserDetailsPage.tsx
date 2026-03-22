@@ -430,7 +430,7 @@ export function UserDetailsPage() {
 
           <FormField
             as="select"
-            label="Серия"
+            label="Куда начислять очки"
             options={[
               { value: 'none', label: 'Выбери серию' },
               ...state.series.map((item) => ({ value: String(item.id), label: item.name })),
