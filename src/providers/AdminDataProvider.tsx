@@ -576,7 +576,10 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
   const getTournamentParticipants = useCallback(
     (tournamentId: number) => {
       const registrations = state.registrations
-        .filter((item) => item.tournamentId === tournamentId)
+        .filter(
+          (item) =>
+            item.tournamentId === tournamentId && item.status !== 'cancelled',
+        )
         .sort((a, b) => a.registrationNumber - b.registrationNumber)
 
       return registrations

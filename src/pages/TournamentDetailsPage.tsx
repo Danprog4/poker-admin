@@ -77,18 +77,37 @@ export function TournamentDetailsPage() {
   const { success, error } = useToast()
 
   const tournament = getTournamentById(tournamentId)
+  const [participantQuery, setParticipantQuery] = useState('')
 
   const participants = useMemo(
     () => getTournamentParticipants(tournamentId),
     [getTournamentParticipants, tournamentId],
   )
   const orderedParticipants = useMemo(
-    () =>
-      participants.map((participant, index) => ({
+    () => {
+      const normalized = participantQuery.trim().toLowerCase()
+
+      return participants
+        .filter((participant) => {
+          if (!normalized) {
+            return true
+          }
+
+          return (
+            (participant.user.login ?? '').toLowerCase().includes(normalized) ||
+            (participant.user.telegramUsername ?? '')
+              .toLowerCase()
+              .includes(normalized) ||
+            (participant.user.name ?? '').toLowerCase().includes(normalized) ||
+            String(participant.user.id).includes(normalized)
+          )
+        })
+        .map((participant) => ({
         ...participant,
-        displayOrder: index + 1,
-      })),
-    [participants],
+        displayOrder: participant.registration.registrationNumber,
+      }))
+    },
+    [participantQuery, participants],
   )
 
   const [newUserId, setNewUserId] = useState('none')
@@ -806,6 +825,21 @@ export function TournamentDetailsPage() {
     }
   }
 
+  const handleCopyTelegramUsername = async (telegramUsername: string | null) => {
+    if (!telegramUsername?.trim()) {
+      error('Username не указан')
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(`@${telegramUsername.trim()}`)
+      success('Username скопирован')
+    } catch (cause) {
+      console.error(cause)
+      error('Не удалось скопировать username')
+    }
+  }
+
   const isBeforeTournamentStart =
     tournament.status === 'upcoming' &&
     new Date(tournament.date).valueOf() > Date.now()
@@ -1111,6 +1145,13 @@ export function TournamentDetailsPage() {
           <h2 className="font-['Space_Grotesk'] text-xl font-bold">Участники</h2>
 
           <div className="flex w-full flex-wrap items-end gap-2 md:w-auto">
+            <input
+              type="search"
+              value={participantQuery}
+              onChange={(event) => setParticipantQuery(event.target.value)}
+              placeholder="Поиск по нику, @username, имени или ID"
+              className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-indigo-100 md:w-96"
+            />
             {isBeforeTournamentStart ? (
               <button
                 type="button"
@@ -1156,6 +1197,21 @@ export function TournamentDetailsPage() {
             { header: '№', render: (row) => row.displayOrder },
             { header: 'Ник', render: (row) => row.user.login },
             { header: 'Имя', render: (row) => row.user.name },
+            {
+              header: 'Username',
+              render: (row) =>
+                row.user.telegramUsername ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyTelegramUsername(row.user.telegramUsername)}
+                    className="font-medium text-[var(--accent)] transition hover:underline"
+                  >
+                    @{row.user.telegramUsername}
+                  </button>
+                ) : (
+                  '—'
+                ),
+            },
             {
               header: 'Регистрация',
               render: (row) => <StatusBadge status={row.registration.status} />,
