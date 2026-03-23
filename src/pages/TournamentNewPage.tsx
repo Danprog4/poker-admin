@@ -13,6 +13,7 @@ import {
   serializeTournamentDescription,
   type TournamentDescriptionBlock,
 } from '../lib/tournament-description'
+import { formatDateTimeInputLabel } from '../lib/date'
 import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
 
@@ -226,18 +227,8 @@ export function TournamentNewPage() {
 
   const previewImage = imageDataUrl ?? (imageUrl.trim() ? imageUrl.trim() : null)
   const previewDateLabel = date
-    ? new Intl.DateTimeFormat('ru-RU', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      }).format(new Date(date))
-    : new Intl.DateTimeFormat('ru-RU', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      }).format(new Date())
+    ? formatDateTimeInputLabel(date)
+    : formatDateTimeInputLabel(new Date().toISOString())
   return (
     <div className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm">
       <h1 className="font-['Space_Grotesk'] text-2xl font-bold">Новый турнир</h1>

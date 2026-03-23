@@ -15,7 +15,7 @@ import type {
   TournamentResult,
   TournamentStatus,
 } from '../lib/admin-models'
-import { formatDateTimeInput } from '../lib/date'
+import { formatDateTimeInput, formatDateTimeInputLabel } from '../lib/date'
 import { fileToDataUrl } from '../lib/imageUpload'
 import { replaceLeadingZeroOnFocus } from '../lib/number-input'
 import {
@@ -663,18 +663,8 @@ export function TournamentDetailsPage() {
   const previewImage =
     localImageDataUrl ?? (localImageUrl.trim() ? localImageUrl.trim() : null)
   const previewDateLabel = localDate
-    ? new Intl.DateTimeFormat('ru-RU', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      }).format(new Date(localDate))
-    : new Intl.DateTimeFormat('ru-RU', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      }).format(new Date())
+    ? formatDateTimeInputLabel(localDate)
+    : formatDateTimeInputLabel(new Date().toISOString())
 
   const handleImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]

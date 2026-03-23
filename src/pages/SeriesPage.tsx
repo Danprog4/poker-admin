@@ -4,7 +4,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DataTable } from '../components/DataTable'
 import type { SeriesRatingRow } from '../lib/admin-models'
 import { FormField } from '../components/FormField'
-import { formatDateInput } from '../lib/date'
+import { formatDateInput, formatDateLabel } from '../lib/date'
 import { trpc } from '../lib/trpc'
 import { useAdminData } from '../providers/useAdminData'
 import { useToast } from '../providers/ToastProvider'
@@ -35,16 +35,7 @@ function normalizeDateRange(startDate: string, endDate: string) {
 }
 
 function formatSeriesDate(value: string) {
-  const date = new Date(value)
-
-  if (Number.isNaN(date.valueOf())) {
-    return value
-  }
-
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: 'numeric',
-    month: 'short',
-  }).format(date)
+  return formatDateLabel(value)
 }
 
 function getCurrentWeekRange(weekOffset = 0) {
