@@ -94,6 +94,7 @@ type RawSeries = {
   startDate: string | Date
   endDate: string | Date
   isActive?: boolean | null
+  isArchived?: boolean | null
   createdAt: string | Date
 }
 
@@ -194,6 +195,20 @@ type RawBootstrapState = {
   broadcasts?: RawBroadcast[]
 }
 
+const normalizeSeriesList = (series: RawSeries[] | undefined, includeArchived = false) =>
+  (series ?? [])
+    .filter((item) => includeArchived || !item.isArchived)
+    .map(
+      (item): ClubSeries => ({
+        id: item.id,
+        name: item.name,
+        startDate: toIso(item.startDate),
+        endDate: toIso(item.endDate),
+        isActive: Boolean(item.isActive),
+        createdAt: toIso(item.createdAt),
+      }),
+    )
+
 const normalizeState = (raw: RawBootstrapState | null | undefined): AdminDataState => {
   const toNumberArray = (value: number[] | string | null | undefined) => {
     if (Array.isArray(value)) {
@@ -244,16 +259,7 @@ const normalizeState = (raw: RawBootstrapState | null | undefined): AdminDataSta
         createdAt: toIso(item.createdAt),
       }),
     ),
-    series: (raw?.series ?? []).map(
-      (item): ClubSeries => ({
-        id: item.id,
-        name: item.name,
-        startDate: toIso(item.startDate),
-        endDate: toIso(item.endDate),
-        isActive: Boolean(item.isActive),
-        createdAt: toIso(item.createdAt),
-      }),
-    ),
+    series: normalizeSeriesList(raw?.series),
     tournaments: (raw?.tournaments ?? []).map(
       (item): Tournament => ({
         id: item.id,
@@ -546,14 +552,19 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
     return normalizeState(bootstrapQuery.data)
   }, [bootstrapQuery.data])
 
+  const allSeries = useMemo(
+    () => normalizeSeriesList(bootstrapQuery.data?.series, true),
+    [bootstrapQuery.data?.series],
+  )
+
   const isBootstrapping = bootstrapQuery.isPending && !bootstrapQuery.data
   const hasBootstrapped = Boolean(bootstrapQuery.data)
   const bootstrapErrorMessage =
     bootstrapQuery.error instanceof Error ? bootstrapQuery.error.message : null
 
   const getSeriesById = useCallback(
-    (seriesId: number | null) => state.series.find((item) => item.id === seriesId) ?? null,
-    [state.series],
+    (seriesId: number | null) => allSeries.find((item) => item.id === seriesId) ?? null,
+    [allSeries],
   )
 
   const getStatusById = useCallback(

@@ -97,9 +97,20 @@ export function SeriesPage() {
     () =>
       [...state.series].sort(
         (a, b) =>
+          Number(b.isActive) - Number(a.isActive) ||
           new Date(b.startDate).valueOf() - new Date(a.startDate).valueOf(),
       ),
     [state.series],
+  )
+
+  const activeRow = useMemo(
+    () => rows.find((item) => item.isActive) ?? null,
+    [rows],
+  )
+
+  const pastRows = useMemo(
+    () => rows.filter((item) => !item.isActive),
+    [rows],
   )
 
   const seriesBaseDrafts = useMemo(
@@ -180,7 +191,7 @@ export function SeriesPage() {
     setIsDeleting(false)
 
     if (!deleted) {
-      error('Не удалось удалить серию')
+      error('Не удалось скрыть серию')
       return
     }
 
@@ -428,11 +439,125 @@ export function SeriesPage() {
       </div>
 
       <DataTable
-        rows={rows}
+        rows={activeRow ? [activeRow] : []}
         getRowKey={(row) => row.id}
         columns={[
           {
-            header: 'Название',
+            header: 'Активная серия',
+            render: (row) => {
+              const draft = {
+                ...seriesBaseDrafts[row.id],
+                ...seriesDraftEdits[row.id],
+              }
+
+              return (
+                <input
+                  value={draft.name}
+                  onChange={(event) =>
+                    patchSeriesDraft(row.id, { name: event.target.value })
+                  }
+                  className="w-full rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
+                />
+              )
+            },
+          },
+          {
+            header: 'Период',
+            render: (row) => {
+              const draft = {
+                ...seriesBaseDrafts[row.id],
+                ...seriesDraftEdits[row.id],
+              }
+
+              return (
+                <div className="space-y-2">
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <input
+                      type="date"
+                      value={draft.startDate}
+                      onChange={(event) =>
+                        patchSeriesDraft(row.id, {
+                          startDate: event.target.value,
+                        })
+                      }
+                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
+                    />
+                    <input
+                      type="date"
+                      value={draft.endDate}
+                      onChange={(event) =>
+                        patchSeriesDraft(row.id, {
+                          endDate: event.target.value,
+                        })
+                      }
+                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-sm outline-none focus:border-[var(--accent)]"
+                    />
+                  </div>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {draft.startDate && draft.endDate
+                      ? `${formatSeriesDate(draft.startDate)} - ${formatSeriesDate(draft.endDate)}`
+                      : 'Период не задан'}
+                  </p>
+                </div>
+              )
+            },
+          },
+          {
+            header: 'Рейтинг',
+            render: (row) => {
+              const ratingRows = ratingsBySeriesId[row.id] ?? []
+
+              return ratingRows.length > 0 ? (
+                <span className="text-sm text-[var(--text-primary)]">
+                  {ratingRows.length} игроков
+                </span>
+              ) : (
+                <span className="text-sm text-[var(--text-muted)]">Пусто</span>
+              )
+            },
+          },
+          {
+            header: '',
+            render: (row) => (
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => void handleSaveSeries(row.id)}
+                  disabled={pendingSeriesId === row.id}
+                  className="rounded-lg border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-semibold text-[var(--text-primary)] transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pendingSeriesId === row.id ? 'Сохраняем...' : 'Сохранить'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCopyRating(row.id)}
+                  disabled={copyingSeriesId === row.id}
+                  className="rounded-lg border border-[var(--line)] bg-white px-2.5 py-1 text-xs font-semibold text-[var(--text-primary)] transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {copyingSeriesId === row.id
+                    ? 'Копируем...'
+                    : 'Скопировать рейтинг'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteId(row.id)}
+                  disabled={pendingSeriesId === row.id}
+                  className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-100"
+                >
+                  Удалить
+                </button>
+              </div>
+            ),
+          },
+        ]}
+      />
+
+      <DataTable
+        rows={pastRows}
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            header: 'Прошедшие серии',
             render: (row) => {
               const draft = {
                 ...seriesBaseDrafts[row.id],
@@ -494,14 +619,8 @@ export function SeriesPage() {
           {
             header: 'Статус',
             render: (row) =>
-              row.isActive ? (
-                <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                  Активная
-                </span>
-              ) : (
-                <span className="text-sm text-[var(--text-muted)]">
-                  Неактивная
-                </span>
+              row.isActive ? null : (
+                <span className="text-sm text-[var(--text-muted)]">Прошедшая</span>
               ),
           },
           {
@@ -572,7 +691,7 @@ export function SeriesPage() {
       <ConfirmDialog
         open={deleteId !== null}
         title="Удалить серию?"
-        description="Серия будет удалена. Это возможно только если к ней не привязаны турниры."
+        description="Серия исчезнет из приложения и админки, но глобальный рейтинг и очки за эту серию будут сохранены."
         confirmLabel="Удалить"
         confirmPendingLabel="Удаляем..."
         pending={isDeleting}
