@@ -159,7 +159,6 @@ export function FaqPage() {
           видны пользователю в приложении.
         </p>
       </div>
-
       <section className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">
           Новый пункт

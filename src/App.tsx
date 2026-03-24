@@ -13,6 +13,7 @@ import { MedalDetailsPage } from "./pages/MedalDetailsPage";
 import { MedalsPage } from "./pages/MedalsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
+import { RatingInfoPage } from "./pages/RatingInfoPage";
 import { SeriesPage } from "./pages/SeriesPage";
 import { StatusDetailsPage } from "./pages/StatusDetailsPage";
 import { StatusesPage } from "./pages/StatusesPage";
@@ -103,6 +104,7 @@ export default function App() {
         <Route path="/broadcasts/new" element={<BroadcastNewPage />} />
         <Route path="/broadcasts/:id" element={<BroadcastDetailsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/rating-info" element={<RatingInfoPage />} />
         <Route path="/faq" element={<FaqPage />} />
       </Route>
 
