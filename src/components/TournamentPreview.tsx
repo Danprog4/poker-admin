@@ -3,6 +3,9 @@ import type { TournamentDescriptionBlock } from '../lib/tournament-description'
 type TournamentPreviewCommon = {
   name: string
   dateLabel: string
+  dateTimeLabel: string
+  startLabel: string
+  lateRegistrationLabel?: string | null
   seatsLabel: string
   imageUrl: string | null
 }
@@ -17,8 +20,28 @@ type TournamentDetailPreviewProps = TournamentPreviewCommon & {
 function ChipIcon({
   kind,
 }: {
-  kind: 'clock' | 'users' | 'sparkles'
+  kind: 'calendar' | 'clock' | 'login' | 'users' | 'sparkles'
 }) {
+  if (kind === 'calendar') {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-[11px] w-[11px]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M8 2v4" />
+        <path d="M16 2v4" />
+        <rect x="3" y="4" width="18" height="18" rx="2" />
+        <path d="M3 10h18" />
+      </svg>
+    )
+  }
+
   if (kind === 'clock') {
     return (
       <svg
@@ -33,6 +56,25 @@ function ChipIcon({
       >
         <circle cx="12" cy="12" r="9" />
         <path d="M12 7v5l3 2" />
+      </svg>
+    )
+  }
+
+  if (kind === 'login') {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-[11px] w-[11px]"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+        <path d="M10 17l5-5-5-5" />
+        <path d="M15 12H3" />
       </svg>
     )
   }
@@ -73,9 +115,14 @@ function ChipIcon({
 export function TournamentCardPreview({
   name,
   dateLabel,
+  dateTimeLabel,
+  startLabel,
+  lateRegistrationLabel,
   seatsLabel,
   imageUrl,
 }: TournamentCardPreviewProps) {
+  const hasLateRegistration = Boolean(lateRegistrationLabel)
+
   return (
     <div className="rounded-xl border border-[var(--line)] bg-white p-3">
       <p className="mb-3 text-sm font-medium text-[var(--text-primary)]">
@@ -97,14 +144,41 @@ export function TournamentCardPreview({
                   {name || 'Название турнира'}
                 </h3>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-[#2f2f34]/80 px-3 text-[13px] font-medium text-white">
-                    <ChipIcon kind="clock" />
-                    {dateLabel}
-                  </span>
-                  <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-[#2f2f34]/80 px-3 text-[13px] font-medium text-white">
-                    <ChipIcon kind="users" />
-                    {seatsLabel}
-                  </span>
+                  {hasLateRegistration ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-[#2f2f34]/80 px-3 text-[13px] font-medium text-white">
+                          <ChipIcon kind="calendar" />
+                          {dateLabel}
+                        </span>
+                        <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-[#2f2f34]/80 px-3 text-[13px] font-medium text-white">
+                          <ChipIcon kind="users" />
+                          {seatsLabel}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-[#2f2f34]/80 px-3 text-[13px] font-medium text-white">
+                          <ChipIcon kind="clock" />
+                          Начало {startLabel}
+                        </span>
+                        <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-[#2f2f34]/80 px-3 text-[13px] font-medium text-white">
+                          <ChipIcon kind="login" />
+                          Вход до {lateRegistrationLabel}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-[#2f2f34]/80 px-3 text-[13px] font-medium text-white">
+                      <ChipIcon kind="clock" />
+                      {dateTimeLabel}
+                    </span>
+                  )}
+                  {!hasLateRegistration ? (
+                    <span className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-[#2f2f34]/80 px-3 text-[13px] font-medium text-white">
+                      <ChipIcon kind="users" />
+                      {seatsLabel}
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
@@ -130,11 +204,16 @@ export function TournamentCardPreview({
 export function TournamentDetailPreview({
   name,
   dateLabel,
+  dateTimeLabel,
+  startLabel,
+  lateRegistrationLabel,
   seatsLabel,
   bonusLabel,
   imageUrl,
   sections,
 }: TournamentDetailPreviewProps) {
+  const hasLateRegistration = Boolean(lateRegistrationLabel)
+
   return (
     <div className="rounded-xl border border-[var(--line)] bg-white p-3">
       <p className="mb-3 text-sm font-medium text-[var(--text-primary)]">
@@ -160,14 +239,41 @@ export function TournamentDetailPreview({
                 {name || 'Название турнира'}
               </h3>
               <div className="mb-1.5 flex flex-wrap gap-1.5">
-                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white/16 px-2.5 text-[11px] font-medium text-white">
-                  <ChipIcon kind="clock" />
-                  {dateLabel}
-                </span>
-                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white/16 px-2.5 text-[11px] font-medium text-white">
-                  <ChipIcon kind="users" />
-                  {seatsLabel}
-                </span>
+                {hasLateRegistration ? (
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white/16 px-2.5 text-[11px] font-medium text-white">
+                        <ChipIcon kind="calendar" />
+                        {dateLabel}
+                      </span>
+                      <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white/16 px-2.5 text-[11px] font-medium text-white">
+                        <ChipIcon kind="users" />
+                        {seatsLabel}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white/16 px-2.5 text-[11px] font-medium text-white">
+                        <ChipIcon kind="clock" />
+                        Начало {startLabel}
+                      </span>
+                      <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white/16 px-2.5 text-[11px] font-medium text-white">
+                        <ChipIcon kind="login" />
+                        Вход до {lateRegistrationLabel}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white/16 px-2.5 text-[11px] font-medium text-white">
+                    <ChipIcon kind="clock" />
+                    {dateTimeLabel}
+                  </span>
+                )}
+                {!hasLateRegistration ? (
+                  <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white/16 px-2.5 text-[11px] font-medium text-white">
+                    <ChipIcon kind="users" />
+                    {seatsLabel}
+                  </span>
+                ) : null}
               </div>
               {bonusLabel ? (
                 <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-white/16 px-2.5 text-[11px] font-medium text-white">

@@ -109,6 +109,7 @@ type RawTournament = {
   address?: string | null
   locationHint?: string | null
   date: string | Date
+  lateRegistrationEndsAt?: string | Date | null
   maxPlayers?: number | null
   prizeInfo?: string | null
   isSignificant?: boolean | null
@@ -272,6 +273,9 @@ const normalizeState = (raw: RawBootstrapState | null | undefined): AdminDataSta
         address: item.address ?? '',
         locationHint: item.locationHint ?? '',
         date: toIso(item.date),
+        lateRegistrationEndsAt: item.lateRegistrationEndsAt
+          ? toIso(item.lateRegistrationEndsAt)
+          : null,
         maxPlayers: item.maxPlayers ?? 0,
         prizeInfo: item.prizeInfo ?? '',
         isSignificant: Boolean(item.isSignificant),
@@ -809,6 +813,9 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
           address: input.address,
           locationHint: input.locationHint,
           date: dateTimeInputToIso(input.date),
+          lateRegistrationEndsAt: input.lateRegistrationEndsAt
+            ? dateTimeInputToIso(input.lateRegistrationEndsAt)
+            : null,
           maxPlayers: input.maxPlayers,
           seriesId: input.seriesId,
           medalId: input.medalId,
@@ -830,6 +837,12 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
           tournamentId,
           ...input,
           date: input.date ? dateTimeInputToIso(input.date) : undefined,
+          lateRegistrationEndsAt:
+            input.lateRegistrationEndsAt !== undefined
+              ? input.lateRegistrationEndsAt
+                ? dateTimeInputToIso(input.lateRegistrationEndsAt)
+                : null
+              : undefined,
         }),
       )
 

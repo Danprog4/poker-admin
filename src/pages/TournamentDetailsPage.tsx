@@ -15,7 +15,12 @@ import type {
   TournamentResult,
   TournamentStatus,
 } from '../lib/admin-models'
-import { formatDateTimeInput, formatDateTimeInputLabel } from '../lib/date'
+import {
+  formatDateTimeInput,
+  formatDateTimeInputLabel,
+  formatDateLabel,
+  formatTimeLabel,
+} from '../lib/date'
 import { fileToDataUrl } from '../lib/imageUpload'
 import { replaceLeadingZeroOnFocus } from '../lib/number-input'
 import {
@@ -44,13 +49,6 @@ function getDefaultPrepayMessage(_login: string) {
   return 'Из-за отмены записи менее чем за 2 часа до турнира / неявки теперь для вас доступна запись только по предоплате. Напишите менеджеру.'
 }
 
-const PARTICIPANT_BADGES = {
-  previousWinner: '🔥',
-  topRating: '👑',
-  regularClub: '🦈',
-  newPlayer: '🆕',
-} as const
-
 export function TournamentDetailsPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -67,47 +65,20 @@ export function TournamentDetailsPage() {
     updateTournamentStatus,
     addRegistration,
     cancelRegistration,
-    updateRegistrationBadges,
     moveFromWaitlist,
     setUserPrepay,
     saveTournamentResults,
-    updateResult,
     deleteResult,
   } = useAdminData()
   const { success, error } = useToast()
 
   const tournament = getTournamentById(tournamentId)
   const [participantQuery, setParticipantQuery] = useState('')
+  const [resultsQuery, setResultsQuery] = useState('')
 
   const participants = useMemo(
     () => getTournamentParticipants(tournamentId),
     [getTournamentParticipants, tournamentId],
-  )
-  const orderedParticipants = useMemo(
-    () => {
-      const normalized = participantQuery.trim().toLowerCase()
-
-      return participants
-        .filter((participant) => {
-          if (!normalized) {
-            return true
-          }
-
-          return (
-            (participant.user.login ?? '').toLowerCase().includes(normalized) ||
-            (participant.user.telegramUsername ?? '')
-              .toLowerCase()
-              .includes(normalized) ||
-            (participant.user.name ?? '').toLowerCase().includes(normalized) ||
-            String(participant.user.id).includes(normalized)
-          )
-        })
-        .map((participant) => ({
-        ...participant,
-        displayOrder: participant.registration.registrationNumber,
-      }))
-    },
-    [participantQuery, participants],
   )
 
   const [newUserId, setNewUserId] = useState('none')
@@ -119,16 +90,17 @@ export function TournamentDetailsPage() {
   const [isCancellingRegistration, setIsCancellingRegistration] = useState(false)
   const [isDeletingTournament, setIsDeletingTournament] = useState(false)
   const [pendingRegistrationId, setPendingRegistrationId] = useState<number | null>(null)
-  const [pendingBadgeRegistrationId, setPendingBadgeRegistrationId] = useState<number | null>(null)
   const [pendingResultId, setPendingResultId] = useState<number | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isFinalizeDialogOpen, setIsFinalizeDialogOpen] = useState(false)
   const [isFinalizingTournament, setIsFinalizingTournament] = useState(false)
+  const [isEditingCompletedResults, setIsEditingCompletedResults] = useState(false)
   const [finalizeSeriesId, setFinalizeSeriesId] = useState('none')
 
   // Local form state for tournament fields (no per-keystroke mutations)
   const [localName, setLocalName] = useState('')
   const [localDate, setLocalDate] = useState('')
+  const [localLateRegistrationEndsAt, setLocalLateRegistrationEndsAt] = useState('')
   const [localSeriesId, setLocalSeriesId] = useState('none')
   const [localMedalId, setLocalMedalId] = useState('none')
   const [localMaxPlayersInput, setLocalMaxPlayersInput] = useState('')
@@ -148,6 +120,11 @@ export function TournamentDetailsPage() {
     if (tournament && !formDirty) {
       setLocalName(tournament.name)
       setLocalDate(formatDateTimeInput(tournament.date))
+      setLocalLateRegistrationEndsAt(
+        tournament.lateRegistrationEndsAt
+          ? formatDateTimeInput(tournament.lateRegistrationEndsAt)
+          : '',
+      )
       setLocalSeriesId(tournament.seriesId ? String(tournament.seriesId) : 'none')
       setLocalMedalId(tournament.medalId ? String(tournament.medalId) : 'none')
       setLocalMaxPlayersInput(String(tournament.maxPlayers))
@@ -271,44 +248,6 @@ export function TournamentDetailsPage() {
     )
   }
 
-  const hasEarlierTournamentParticipation = (userId: number) =>
-    state.registrations.some((registration) => {
-      if (
-        registration.userId !== userId ||
-        registration.tournamentId === tournament.id ||
-        registration.status === 'cancelled'
-      ) {
-        return false
-      }
-
-      const registrationTournament = state.tournaments.find(
-        (item) => item.id === registration.tournamentId,
-      )
-
-      if (!registrationTournament) {
-        return false
-      }
-
-      return (
-        new Date(registrationTournament.date).valueOf() <
-        new Date(tournament.date).valueOf()
-      )
-    })
-
-  const getParticipantBadge = (participant: (typeof participants)[number]) => {
-    if (participant.registration.hasPreviousWinnerBadge) {
-      return PARTICIPANT_BADGES.previousWinner
-    }
-
-    if (participant.registration.hasTopRatingBadge) {
-      return PARTICIPANT_BADGES.topRating
-    }
-
-    return hasEarlierTournamentParticipation(participant.user.id)
-      ? PARTICIPANT_BADGES.regularClub
-      : PARTICIPANT_BADGES.newPlayer
-  }
-
   const buildParticipantsClipboardText = () => {
     const rows = participants
       .filter((participant) => participant.registration.status !== 'cancelled')
@@ -321,26 +260,18 @@ export function TournamentDetailsPage() {
       return null
     }
 
-    const legend = [
-      `${PARTICIPANT_BADGES.previousWinner} — победитель прошлого турнира`,
-      `${PARTICIPANT_BADGES.topRating} — топ рейтинга`,
-      `${PARTICIPANT_BADGES.regularClub} — регуляр клуба`,
-      `${PARTICIPANT_BADGES.newPlayer} — новый игрок`,
-    ].join('\n')
-
     const list = rows
       .map((participant, index) => {
         const label =
           participant.user.login?.trim() ||
           participant.user.name?.trim() ||
           `Игрок ${participant.user.id}`
-        const badge = getParticipantBadge(participant)
 
-        return `${index + 1}. ${label}${badge ? ` ${badge}` : ''}`
+        return `${index + 1}. ${label}`
       })
       .join('\n')
 
-    return `${legend}\n\nСписок игроков\n\n${list}`
+    return `Список игроков\n\n${list}`
   }
 
   const getResultDraft = (
@@ -379,7 +310,7 @@ export function TournamentDetailsPage() {
     const draft = getResultDraft(userId, result)
 
     return (
-      draft.place > 0 ||
+      userId in resultsDraft ||
       draft.points > 0 ||
       draft.bounty > 0 ||
       draft.isItm ||
@@ -387,11 +318,87 @@ export function TournamentDetailsPage() {
     )
   }
 
+  const orderedParticipants = useMemo(() => {
+    const normalized = participantQuery.trim().toLowerCase()
+
+    return participants
+      .filter((participant) => {
+        if (!normalized) {
+          return true
+        }
+
+        return (
+          (participant.user.login ?? '').toLowerCase().includes(normalized) ||
+          (participant.user.telegramUsername ?? '')
+            .toLowerCase()
+            .includes(normalized) ||
+          (participant.user.name ?? '').toLowerCase().includes(normalized) ||
+          String(participant.user.id).includes(normalized)
+        )
+      })
+      .sort((left, right) => {
+        const leftPlace =
+          getResultDraft(left.user.id, left.result).place || Number.POSITIVE_INFINITY
+        const rightPlace =
+          getResultDraft(right.user.id, right.result).place || Number.POSITIVE_INFINITY
+
+        if (leftPlace !== rightPlace) {
+          return leftPlace - rightPlace
+        }
+
+        return (
+          left.registration.registrationNumber - right.registration.registrationNumber
+        )
+      })
+      .map((participant, index) => ({
+        ...participant,
+        displayOrder: index + 1,
+      }))
+  }, [participantQuery, participants, resultsDraft])
+
   const activeParticipantIds = new Set(
     participants
       .filter((item) => item.registration.status !== 'cancelled')
       .map((item) => item.user.id),
   )
+
+  const resultsParticipants = useMemo(
+    () =>
+      participants
+        .filter((item) => item.registration.status !== 'cancelled')
+        .sort((left, right) => {
+          const leftPlace =
+            getResultDraft(left.user.id, left.result).place || Number.POSITIVE_INFINITY
+          const rightPlace =
+            getResultDraft(right.user.id, right.result).place || Number.POSITIVE_INFINITY
+
+          if (leftPlace !== rightPlace) {
+            return leftPlace - rightPlace
+          }
+
+          return (
+            left.registration.registrationNumber - right.registration.registrationNumber
+          )
+        }),
+    [participants, resultsDraft],
+  )
+
+  const filteredResultsParticipants = useMemo(() => {
+    const normalized = resultsQuery.trim().toLowerCase()
+
+    if (!normalized) {
+      return resultsParticipants
+    }
+
+    return resultsParticipants.filter((participant) => {
+      return (
+        (participant.user.login ?? '').toLowerCase().includes(normalized) ||
+        (participant.user.telegramUsername ?? '').toLowerCase().includes(normalized) ||
+        (participant.user.name ?? '').toLowerCase().includes(normalized) ||
+        String(participant.user.id).includes(normalized)
+      )
+    })
+  }, [resultsParticipants, resultsQuery])
 
   const availableUsers = state.users.filter((item) => !activeParticipantIds.has(item.id))
 
@@ -418,6 +425,7 @@ export function TournamentDetailsPage() {
     const updated = await updateTournament(tournament.id, {
       name: localName,
       date: localDate,
+      lateRegistrationEndsAt: localLateRegistrationEndsAt || null,
       seriesId: newSeriesId,
       medalId: newMedalId,
       maxPlayers: parsedMaxPlayers,
@@ -494,7 +502,7 @@ export function TournamentDetailsPage() {
       .sort((a, b) => a.place - b.place)
 
     if (rows.length === 0) {
-      error('Заполни хотя бы одно место, чтобы сохранить результаты')
+      error('Заполни хотя бы очки, баунти, ITM или место, чтобы сохранить результаты')
       return
     }
 
@@ -518,6 +526,7 @@ export function TournamentDetailsPage() {
       return
     }
 
+    setIsEditingCompletedResults(false)
     success('Изменения применены')
   }
 
@@ -602,6 +611,7 @@ export function TournamentDetailsPage() {
     setLocalSeriesId(finalizeSeriesId)
     setLocalStatus('completed')
     setResultsDraft({})
+    setIsEditingCompletedResults(false)
     setIsFinalizeDialogOpen(false)
     success('Турнир завершён, результаты и очки сохранены')
   }
@@ -623,27 +633,7 @@ export function TournamentDetailsPage() {
     error('Не удалось перевести игрока из листа ожидания')
   }
 
-  const handleUpdateResult = async (
-    resultId: number,
-    values: Partial<Omit<TournamentResult, 'id' | 'createdAt'>>,
-  ) => {
-    if (pendingResultId !== null) {
-      return
-    }
-
-    setPendingResultId(resultId)
-    const updated = await updateResult(resultId, values)
-    setPendingResultId(null)
-
-    if (updated) {
-      success('Изменения применены')
-      return
-    }
-
-    error('Не удалось обновить результат')
-  }
-
-  const handleDeleteResult = async (resultId: number) => {
+  const handleDeleteResult = async (userId: number, resultId: number) => {
     if (pendingResultId !== null) {
       return
     }
@@ -653,6 +643,11 @@ export function TournamentDetailsPage() {
     setPendingResultId(null)
 
     if (deleted) {
+      setResultsDraft((previous) => {
+        const next = { ...previous }
+        delete next[userId]
+        return next
+      })
       success('Изменения применены')
       return
     }
@@ -681,9 +676,15 @@ export function TournamentDetailsPage() {
   const markDirty = () => { if (!formDirty) setFormDirty(true) }
   const previewImage =
     localImageDataUrl ?? (localImageUrl.trim() ? localImageUrl.trim() : null)
-  const previewDateLabel = localDate
-    ? formatDateTimeInputLabel(localDate)
-    : formatDateTimeInputLabel(new Date().toISOString())
+  const previewDateSource = localDate || new Date().toISOString()
+  const previewLateRegistrationSource =
+    localLateRegistrationEndsAt || previewDateSource
+  const previewDateLabel = formatDateLabel(previewDateSource)
+  const previewDateTimeLabel = formatDateTimeInputLabel(previewDateSource)
+  const previewStartLabel = formatTimeLabel(previewDateSource)
+  const previewLateRegistrationLabel = localLateRegistrationEndsAt
+    ? formatTimeLabel(previewLateRegistrationSource)
+    : null
 
   const handleImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -785,29 +786,6 @@ export function TournamentDetailsPage() {
     navigate('/tournaments')
   }
 
-  const handleToggleRegistrationBadge = async (
-    registrationId: number,
-    patch: {
-      hasTopRatingBadge?: boolean
-      hasPreviousWinnerBadge?: boolean
-    },
-  ) => {
-    if (pendingBadgeRegistrationId !== null) {
-      return
-    }
-
-    setPendingBadgeRegistrationId(registrationId)
-    const updated = await updateRegistrationBadges(registrationId, patch)
-    setPendingBadgeRegistrationId(null)
-
-    if (!updated) {
-      error('Не удалось обновить эмодзи участника')
-      return
-    }
-
-    success('Изменения применены')
-  }
-
   const handleCopyResults = async () => {
     const text = buildParticipantsClipboardText()
 
@@ -884,6 +862,15 @@ export function TournamentDetailsPage() {
               type: 'datetime-local',
               value: localDate,
               onChange: (event) => { setLocalDate(event.target.value); markDirty() },
+            }}
+          />
+
+          <FormField
+            label="Вход до"
+            inputProps={{
+              type: 'datetime-local',
+              value: localLateRegistrationEndsAt,
+              onChange: (event) => { setLocalLateRegistrationEndsAt(event.target.value); markDirty() },
             }}
           />
 
@@ -1117,12 +1104,18 @@ export function TournamentDetailsPage() {
         <TournamentCardPreview
           name={localName}
           dateLabel={previewDateLabel}
+          dateTimeLabel={previewDateTimeLabel}
+          startLabel={previewStartLabel}
+          lateRegistrationLabel={previewLateRegistrationLabel}
           seatsLabel={`0/${localMaxPlayersInput || 0}`}
           imageUrl={previewImage}
         />
         <TournamentDetailPreview
           name={localName}
           dateLabel={previewDateLabel}
+          dateTimeLabel={previewDateTimeLabel}
+          startLabel={previewStartLabel}
+          lateRegistrationLabel={previewLateRegistrationLabel}
           seatsLabel={`${localMaxPlayersInput || 0} мест`}
           bonusLabel={bonusItems.map((item) => item.trim()).find(Boolean) ?? ''}
           imageUrl={previewImage}
@@ -1181,15 +1174,6 @@ export function TournamentDetailsPage() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm text-[var(--text-primary)] shadow-sm">
-          <div className="flex flex-wrap gap-x-5 gap-y-2">
-            <span>{PARTICIPANT_BADGES.previousWinner} победитель прошлого турнира</span>
-            <span>{PARTICIPANT_BADGES.topRating} топ рейтинга</span>
-            <span>{PARTICIPANT_BADGES.regularClub} регуляр клуба</span>
-            <span>{PARTICIPANT_BADGES.newPlayer} новый игрок</span>
-          </div>
-        </div>
-
         <DataTable
           rows={orderedParticipants}
           getRowKey={(row) => row.registration.id}
@@ -1215,57 +1199,6 @@ export function TournamentDetailsPage() {
             {
               header: 'Регистрация',
               render: (row) => <StatusBadge status={row.registration.status} />,
-            },
-            {
-              header: 'Эмодзи',
-              render: (row) => {
-                const badge = getParticipantBadge(row)
-
-                return (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2 text-lg">
-                      <span>{badge}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleToggleRegistrationBadge(row.registration.id, {
-                            hasPreviousWinnerBadge:
-                              !row.registration.hasPreviousWinnerBadge,
-                            hasTopRatingBadge: false,
-                          })
-                        }
-                        disabled={pendingBadgeRegistrationId !== null}
-                        className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                          row.registration.hasPreviousWinnerBadge
-                            ? 'border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100'
-                            : 'border border-[var(--line)] bg-white text-[var(--text-secondary)] hover:bg-gray-50'
-                        } disabled:cursor-not-allowed disabled:opacity-60`}
-                      >
-                        🔥 Победитель
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleToggleRegistrationBadge(row.registration.id, {
-                            hasTopRatingBadge: !row.registration.hasTopRatingBadge,
-                            hasPreviousWinnerBadge: false,
-                          })
-                        }
-                        disabled={pendingBadgeRegistrationId !== null}
-                        className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                          row.registration.hasTopRatingBadge
-                            ? 'border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
-                            : 'border border-[var(--line)] bg-white text-[var(--text-secondary)] hover:bg-gray-50'
-                        } disabled:cursor-not-allowed disabled:opacity-60`}
-                      >
-                        👑 Топ рейтинга
-                      </button>
-                    </div>
-                  </div>
-                )
-              },
             },
             {
               header: '',
@@ -1315,19 +1248,61 @@ export function TournamentDetailsPage() {
             >
               Скопировать список игроков
             </button>
-            <button
-              type="button"
-              onClick={handleOpenFinalizeDialog}
-              disabled={isFinalizingTournament || isTournamentCompleted}
-              className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isFinalizingTournament ? 'Завершаем...' : 'Завершить турнир'}
-            </button>
+            {isTournamentCompleted ? (
+              <button
+                type="button"
+                onClick={() => setIsEditingCompletedResults(true)}
+                disabled={isEditingCompletedResults}
+                className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isEditingCompletedResults
+                  ? 'Результаты редактируются'
+                  : 'Редактировать результаты'}
+              </button>
+            ) : null}
+            {isTournamentCompleted ? (
+              <>
+                <button
+                  type="button"
+                  disabled
+                  className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Сохранить и завершить турнир
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveResults()}
+                  disabled={!isEditingCompletedResults || isSavingResults}
+                  className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSavingResults ? 'Сохраняем...' : 'Сохранить результат'}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleOpenFinalizeDialog}
+                disabled={isFinalizingTournament}
+                className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isFinalizingTournament
+                  ? 'Сохраняем и завершаем...'
+                  : 'Сохранить и завершить турнир'}
+              </button>
+            )}
           </div>
         </div>
 
+        <input
+          type="search"
+          value={resultsQuery}
+          onChange={(event) => setResultsQuery(event.target.value)}
+          placeholder="Поиск по нику, @username, имени или ID"
+          className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-indigo-100 md:w-96"
+        />
+
         <DataTable
-          rows={participants}
+          rows={filteredResultsParticipants}
           getRowKey={(row) => row.user.id}
           emptyLabel="Нет участников"
           columns={[
@@ -1339,7 +1314,10 @@ export function TournamentDetailsPage() {
             {
               header: 'Место',
               render: (row) => {
-                const isRowDisabled = row.user.isPrepayRequired || isTournamentCompleted
+                const hasResultData = hasAnyResultData(row.user.id, row.result)
+                const isRowDisabled =
+                  (row.user.isPrepayRequired && !hasResultData) ||
+                  (isTournamentCompleted && !isEditingCompletedResults)
 
                 return (
                   <input
@@ -1364,7 +1342,10 @@ export function TournamentDetailsPage() {
             {
               header: 'ITM',
               render: (row) => {
-                const isRowDisabled = row.user.isPrepayRequired || isTournamentCompleted
+                const hasResultData = hasAnyResultData(row.user.id, row.result)
+                const isRowDisabled =
+                  (row.user.isPrepayRequired && !hasResultData) ||
+                  (isTournamentCompleted && !isEditingCompletedResults)
 
                 return (
                   <input
@@ -1387,7 +1368,10 @@ export function TournamentDetailsPage() {
             {
               header: 'Очки',
               render: (row) => {
-                const isRowDisabled = row.user.isPrepayRequired || isTournamentCompleted
+                const hasResultData = hasAnyResultData(row.user.id, row.result)
+                const isRowDisabled =
+                  (row.user.isPrepayRequired && !hasResultData) ||
+                  (isTournamentCompleted && !isEditingCompletedResults)
 
                 return (
                   <input
@@ -1411,7 +1395,10 @@ export function TournamentDetailsPage() {
             {
               header: 'Баунти',
               render: (row) => {
-                const isRowDisabled = row.user.isPrepayRequired || isTournamentCompleted
+                const hasResultData = hasAnyResultData(row.user.id, row.result)
+                const isRowDisabled =
+                  (row.user.isPrepayRequired && !hasResultData) ||
+                  (isTournamentCompleted && !isEditingCompletedResults)
 
                 return (
                   <input
@@ -1436,7 +1423,6 @@ export function TournamentDetailsPage() {
               header: '',
               render: (row) => {
                 const currentResult = row.result
-                const draft = getResultDraft(row.user.id, row.result)
                 const shouldHidePrepay = hasAnyResultData(row.user.id, row.result)
 
                 return (
@@ -1465,22 +1451,12 @@ export function TournamentDetailsPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            void handleUpdateResult(currentResult.id, {
-                              place: draft.place,
-                              isItm: draft.isItm,
-                              points: draft.points,
-                              bounty: draft.bounty,
-                            })
+                            void handleDeleteResult(row.user.id, currentResult.id)
                           }
-                          disabled={pendingResultId !== null}
-                          className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {pendingResultId === currentResult.id ? 'Сохраняем...' : 'Обновить'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteResult(currentResult.id)}
-                          disabled={pendingResultId !== null}
+                          disabled={
+                            pendingResultId !== null ||
+                            (isTournamentCompleted && !isEditingCompletedResults)
+                          }
                           className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {pendingResultId === currentResult.id ? 'Удаляем...' : 'Удалить'}
@@ -1499,14 +1475,6 @@ export function TournamentDetailsPage() {
           ]}
         />
 
-        <button
-          type="button"
-          onClick={() => void handleSaveResults()}
-          disabled={isSavingResults || isTournamentCompleted}
-          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isSavingResults ? 'Сохраняем...' : 'Сохранить результаты'}
-        </button>
       </section>
 
       <ConfirmDialog

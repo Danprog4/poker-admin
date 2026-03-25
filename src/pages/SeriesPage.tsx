@@ -327,11 +327,11 @@ export function SeriesPage() {
     const lines =
       serverRows.length > 0
         ? serverRows
-            .filter((row) => row.totalPoints !== 0 || row.totalBounty !== 0)
-            .map(
-              (row) =>
-                `${row.rank}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
-            )
+          .filter((row) => row.totalPoints !== 0 || row.totalBounty !== 0)
+          .map(
+            (row) =>
+              `${row.rank}. ${row.login} - ${row.totalPoints} - ${row.totalBounty}`,
+          )
         : fallbackLines
 
     if (lines.length === 0) {

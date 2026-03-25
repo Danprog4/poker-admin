@@ -13,7 +13,7 @@ import {
   serializeTournamentDescription,
   type TournamentDescriptionBlock,
 } from '../lib/tournament-description'
-import { formatDateTimeInputLabel } from '../lib/date'
+import { formatDateLabel, formatDateTimeInputLabel, formatTimeLabel } from '../lib/date'
 import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
 
@@ -28,6 +28,7 @@ export function TournamentNewPage() {
   const [descriptionBlocks, setDescriptionBlocks] = useState<TournamentDescriptionBlock[]>([])
   const [bonusItems, setBonusItems] = useState<string[]>([''])
   const [date, setDate] = useState('')
+  const [lateRegistrationEndsAt, setLateRegistrationEndsAt] = useState('')
   const [maxPlayersInput, setMaxPlayersInput] = useState('60')
   const [seriesId, setSeriesId] = useState<string>(
     activeSeries ? String(activeSeries.id) : 'none',
@@ -172,6 +173,7 @@ export function TournamentNewPage() {
       address: DEFAULT_TOURNAMENT_ADDRESS,
       locationHint: '',
       date,
+      lateRegistrationEndsAt: lateRegistrationEndsAt || null,
       maxPlayers: parsedMaxPlayers,
       seriesId: seriesId === 'none' ? null : Number(seriesId),
       medalId: medalId === 'none' ? null : Number(medalId),
@@ -226,9 +228,14 @@ export function TournamentNewPage() {
   }
 
   const previewImage = imageDataUrl ?? (imageUrl.trim() ? imageUrl.trim() : null)
-  const previewDateLabel = date
-    ? formatDateTimeInputLabel(date)
-    : formatDateTimeInputLabel(new Date().toISOString())
+  const previewDateSource = date || new Date().toISOString()
+  const previewLateRegistrationSource = lateRegistrationEndsAt || previewDateSource
+  const previewDateLabel = formatDateLabel(previewDateSource)
+  const previewDateTimeLabel = formatDateTimeInputLabel(previewDateSource)
+  const previewStartLabel = formatTimeLabel(previewDateSource)
+  const previewLateRegistrationLabel = lateRegistrationEndsAt
+    ? formatTimeLabel(previewLateRegistrationSource)
+    : null
   return (
     <div className="space-y-4 rounded-xl border border-[var(--line)] bg-white p-5 shadow-sm">
       <h1 className="font-['Space_Grotesk'] text-2xl font-bold">Новый турнир</h1>
@@ -259,6 +266,15 @@ export function TournamentNewPage() {
             type: 'datetime-local',
             value: date,
             onChange: (event) => setDate(event.target.value),
+          }}
+        />
+
+        <FormField
+          label="Вход до"
+          inputProps={{
+            type: 'datetime-local',
+            value: lateRegistrationEndsAt,
+            onChange: (event) => setLateRegistrationEndsAt(event.target.value),
           }}
         />
 
@@ -454,12 +470,18 @@ export function TournamentNewPage() {
         <TournamentCardPreview
           name={name}
           dateLabel={previewDateLabel}
+          dateTimeLabel={previewDateTimeLabel}
+          startLabel={previewStartLabel}
+          lateRegistrationLabel={previewLateRegistrationLabel}
           seatsLabel={`0/${maxPlayersInput || 0}`}
           imageUrl={previewImage}
         />
         <TournamentDetailPreview
           name={name}
           dateLabel={previewDateLabel}
+          dateTimeLabel={previewDateTimeLabel}
+          startLabel={previewStartLabel}
+          lateRegistrationLabel={previewLateRegistrationLabel}
           seatsLabel={`${maxPlayersInput || 0} мест`}
           bonusLabel={bonusItems.map((item) => item.trim()).find(Boolean) ?? ''}
           imageUrl={previewImage}

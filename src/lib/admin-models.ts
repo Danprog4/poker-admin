@@ -49,6 +49,7 @@ export type Tournament = {
   address: string
   locationHint: string
   date: string
+  lateRegistrationEndsAt: string | null
   maxPlayers: number
   prizeInfo: string
   isSignificant: boolean
@@ -137,6 +138,7 @@ export type CreateTournamentInput = {
   address: string
   locationHint: string
   date: string
+  lateRegistrationEndsAt: string | null
   maxPlayers: number
   seriesId: number | null
   medalId: number | null

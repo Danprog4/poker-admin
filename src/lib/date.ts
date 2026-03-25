@@ -20,6 +20,12 @@ const moscowDateTimeLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
   minute: '2-digit',
 })
 
+const moscowTimeLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: MOSCOW_TIME_ZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 const moscowDateLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
   timeZone: MOSCOW_TIME_ZONE,
   day: 'numeric',
@@ -184,5 +190,23 @@ export const formatDateLabel = (value: string) => {
 
   return moscowDateLabelFormatter.format(
     buildMoscowDate(parts.year, parts.month, parts.day),
+  )
+}
+
+export const formatTimeLabel = (value: string) => {
+  const parts = parseDateTimeParts(value)
+
+  if (!parts) {
+    const date = new Date(value)
+
+    if (Number.isNaN(date.valueOf())) {
+      return value
+    }
+
+    return moscowTimeLabelFormatter.format(date)
+  }
+
+  return moscowTimeLabelFormatter.format(
+    buildMoscowDate(parts.year, parts.month, parts.day, parts.hours, parts.minutes),
   )
 }
