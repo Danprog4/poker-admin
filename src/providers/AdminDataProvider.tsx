@@ -433,6 +433,11 @@ type AdminDataContextValue = {
   ) => Promise<boolean>
   setUserStatus: (userId: number, statusId: number | null) => Promise<boolean>
   updateUserLogin: (userId: number, login: string) => Promise<boolean>
+  createManualUser: (input: {
+    login: string
+    name?: string
+    telegramUsername?: string
+  }) => Promise<ClubUser | null>
   createAdjustment: (input: CreateAdjustmentInput) => Promise<boolean>
   deleteAdjustment: (adjustmentId: number) => Promise<boolean>
   createStatus: (input: CreateStatusInput) => Promise<boolean>
@@ -495,6 +500,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
   const setUserPrepayMutation = trpc.admin.users.setPrepay.useMutation()
   const setUserStatusMutation = trpc.admin.users.setStatus.useMutation()
   const updateUserLoginMutation = trpc.admin.users.updateLogin.useMutation()
+  const createManualUserMutation = trpc.admin.users.createManual.useMutation()
 
   const createAdjustmentMutation = trpc.admin.adjustments.create.useMutation()
   const deleteAdjustmentMutation = trpc.admin.adjustments.delete.useMutation()
@@ -525,14 +531,14 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
   }, [bootstrapQuery])
 
   const runAndRefresh = useCallback(
-    async (operation: () => Promise<unknown>) => {
+    async <T,>(operation: () => Promise<T>) => {
       try {
         const result = await operation()
         await refresh()
         return result
       } catch (error) {
         console.error(error)
-        return null
+        return null as T | null
       }
     },
     [refresh],
@@ -1129,6 +1135,15 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
     [runAndRefresh, updateUserLoginMutation],
   )
 
+  const createManualUser = useCallback(
+    async (input: { login: string; name?: string; telegramUsername?: string }) => {
+      return (await runAndRefresh(() =>
+        createManualUserMutation.mutateAsync(input),
+      )) as ClubUser | null
+    },
+    [createManualUserMutation, runAndRefresh],
+  )
+
   const createAdjustment = useCallback(
     async (input: CreateAdjustmentInput) => {
       const result = await runAndRefresh(() =>
@@ -1341,6 +1356,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       setUserPrepay,
       setUserStatus,
       updateUserLogin,
+      createManualUser,
       createAdjustment,
       deleteAdjustment,
       createStatus,
@@ -1396,6 +1412,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       setUserPrepay,
       setUserStatus,
       updateUserLogin,
+      createManualUser,
       createAdjustment,
       deleteAdjustment,
       createStatus,

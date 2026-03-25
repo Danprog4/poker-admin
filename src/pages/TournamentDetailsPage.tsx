@@ -67,6 +67,7 @@ export function TournamentDetailsPage() {
     cancelRegistration,
     moveFromWaitlist,
     setUserPrepay,
+    createManualUser,
     saveTournamentResults,
     deleteResult,
   } = useAdminData()
@@ -74,7 +75,6 @@ export function TournamentDetailsPage() {
 
   const tournament = getTournamentById(tournamentId)
   const [participantQuery, setParticipantQuery] = useState('')
-  const [resultsQuery, setResultsQuery] = useState('')
 
   const participants = useMemo(
     () => getTournamentParticipants(tournamentId),
@@ -82,10 +82,22 @@ export function TournamentDetailsPage() {
   )
 
   const [newUserId, setNewUserId] = useState('none')
+  const [isManualUserDialogOpen, setIsManualUserDialogOpen] = useState(false)
+  const [manualUserLogin, setManualUserLogin] = useState('')
+  const [manualUserName, setManualUserName] = useState('')
+  const [manualTelegramUsername, setManualTelegramUsername] = useState('')
+  const [resultEntryUserId, setResultEntryUserId] = useState('none')
+  const [resultEntryDraft, setResultEntryDraft] = useState<EditableResult>({
+    place: 0,
+    isItm: false,
+    points: 0,
+    bounty: 0,
+  })
   const [resultsDraft, setResultsDraft] = useState<Record<number, EditableResult>>({})
   const [cancelRegId, setCancelRegId] = useState<number | null>(null)
   const [isSavingTournament, setIsSavingTournament] = useState(false)
   const [isAddingUser, setIsAddingUser] = useState(false)
+  const [isCreatingManualUser, setIsCreatingManualUser] = useState(false)
   const [isSavingResults, setIsSavingResults] = useState(false)
   const [isCancellingRegistration, setIsCancellingRegistration] = useState(false)
   const [isDeletingTournament, setIsDeletingTournament] = useState(false)
@@ -93,9 +105,11 @@ export function TournamentDetailsPage() {
   const [pendingResultId, setPendingResultId] = useState<number | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isFinalizeDialogOpen, setIsFinalizeDialogOpen] = useState(false)
+  const [isMissingResultsDialogOpen, setIsMissingResultsDialogOpen] = useState(false)
   const [isFinalizingTournament, setIsFinalizingTournament] = useState(false)
   const [isEditingCompletedResults, setIsEditingCompletedResults] = useState(false)
   const [finalizeSeriesId, setFinalizeSeriesId] = useState('none')
+  const [missingResultsLogins, setMissingResultsLogins] = useState<string[]>([])
 
   // Local form state for tournament fields (no per-keystroke mutations)
   const [localName, setLocalName] = useState('')
@@ -303,6 +317,16 @@ export function TournamentDetailsPage() {
     }))
   }
 
+  const setResultEntryField = (
+    field: keyof EditableResult,
+    value: number | boolean,
+  ) => {
+    setResultEntryDraft((previous) => ({
+      ...previous,
+      [field]: value,
+    }))
+  }
+
   const hasAnyResultData = (
     userId: number,
     result: TournamentResult | null,
@@ -362,10 +386,11 @@ export function TournamentDetailsPage() {
       .map((item) => item.user.id),
   )
 
-  const resultsParticipants = useMemo(
+  const enteredResultsParticipants = useMemo(
     () =>
       participants
         .filter((item) => item.registration.status !== 'cancelled')
+        .filter((item) => hasAnyResultData(item.user.id, item.result))
         .sort((left, right) => {
           const leftPlace =
             getResultDraft(left.user.id, left.result).place || Number.POSITIVE_INFINITY
@@ -383,22 +408,71 @@ export function TournamentDetailsPage() {
     [participants, resultsDraft],
   )
 
-  const filteredResultsParticipants = useMemo(() => {
-    const normalized = resultsQuery.trim().toLowerCase()
+  const availableResultParticipants = useMemo(
+    () =>
+      participants
+        .filter((item) => item.registration.status !== 'cancelled')
+        .filter((item) => !hasAnyResultData(item.user.id, item.result))
+        .sort(
+          (left, right) =>
+            left.registration.registrationNumber - right.registration.registrationNumber,
+        ),
+    [participants, resultsDraft],
+  )
 
-    if (!normalized) {
-      return resultsParticipants
+  const resultParticipantOptions = useMemo(
+    () =>
+      availableResultParticipants.map((participant) => {
+        const username = participant.user.telegramUsername?.trim()
+        const name = participant.user.name?.trim()
+        const extraParts = [username ? `@${username}` : null, name || null].filter(Boolean)
+
+        return {
+          value: String(participant.user.id),
+          label: extraParts.length > 0
+            ? `${participant.user.login} (${extraParts.join(' • ')})`
+            : participant.user.login,
+        }
+      }),
+    [availableResultParticipants],
+  )
+
+  const missingResultPlaces = useMemo(() => {
+    const places = enteredResultsParticipants
+      .map((participant) => getResultDraft(participant.user.id, participant.result).place)
+      .filter((place) => place > 0)
+      .sort((a, b) => a - b)
+
+    if (places.length === 0) {
+      return []
     }
 
-    return resultsParticipants.filter((participant) => {
-      return (
-        (participant.user.login ?? '').toLowerCase().includes(normalized) ||
-        (participant.user.telegramUsername ?? '').toLowerCase().includes(normalized) ||
-        (participant.user.name ?? '').toLowerCase().includes(normalized) ||
-        String(participant.user.id).includes(normalized)
-      )
-    })
-  }, [resultsParticipants, resultsQuery])
+    const usedPlaces = new Set(places)
+    const maxPlace = places[places.length - 1] ?? 0
+
+    return Array.from({ length: maxPlace }, (_, index) => index + 1).filter(
+      (place) => !usedPlaces.has(place),
+    )
+  }, [enteredResultsParticipants, resultsDraft])
+
+  const duplicateResultPlaces = useMemo(() => {
+    const counts = new Map<number, number>()
+
+    for (const participant of enteredResultsParticipants) {
+      const place = getResultDraft(participant.user.id, participant.result).place
+
+      if (place <= 0) {
+        continue
+      }
+
+      counts.set(place, (counts.get(place) ?? 0) + 1)
+    }
+
+    return [...counts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([place]) => place)
+      .sort((a, b) => a - b)
+  }, [enteredResultsParticipants, resultsDraft])
 
   const availableUsers = state.users.filter((item) => !activeParticipantIds.has(item.id))
 
@@ -478,6 +552,88 @@ export function TournamentDetailsPage() {
 
     setNewUserId('none')
     success('Пользователь добавлен в список участников')
+  }
+
+  const handleCreateManualUser = async () => {
+    const login = manualUserLogin.trim()
+    const name = manualUserName.trim()
+    const telegramUsername = manualTelegramUsername.trim().replace(/^@+/, '')
+
+    if (!login) {
+      error('Укажи ник или имя участника')
+      return
+    }
+
+    setIsCreatingManualUser(true)
+    const createdUser = await createManualUser({
+      login,
+      name: name || undefined,
+      telegramUsername: telegramUsername || undefined,
+    })
+
+    if (!createdUser) {
+      setIsCreatingManualUser(false)
+      error('Не удалось создать ручного участника')
+      return
+    }
+
+    const added = await addRegistration(tournament.id, createdUser.id)
+    setIsCreatingManualUser(false)
+
+    if (!added) {
+      error('Пользователь создан, но в турнир добавить его не удалось')
+      return
+    }
+
+    setIsManualUserDialogOpen(false)
+    setManualUserLogin('')
+    setManualUserName('')
+    setManualTelegramUsername('')
+    success('Ручной участник создан и добавлен в турнир')
+  }
+
+  const handleAddResultEntry = () => {
+    if (resultEntryUserId === 'none') {
+      error('Выбери участника турнира')
+      return
+    }
+
+    if (resultEntryDraft.place < 1) {
+      error('Укажи место участника')
+      return
+    }
+
+    const nextUserId = Number(resultEntryUserId)
+    const hasDuplicatePlace = enteredResultsParticipants.some((participant) => {
+      if (participant.user.id === nextUserId) {
+        return false
+      }
+
+      return getResultDraft(participant.user.id, participant.result).place === resultEntryDraft.place
+    })
+
+    if (hasDuplicatePlace) {
+      error('Такое место уже занято другим участником')
+      return
+    }
+
+    setResultsDraft((previous) => ({
+      ...previous,
+      [nextUserId]: {
+        place: resultEntryDraft.place,
+        isItm: resultEntryDraft.isItm,
+        points: resultEntryDraft.points,
+        bounty: resultEntryDraft.bounty,
+      },
+    }))
+
+    setResultEntryUserId('none')
+    setResultEntryDraft({
+      place: 0,
+      isItm: false,
+      points: 0,
+      bounty: 0,
+    })
   }
 
   const handleSaveResults = async () => {
@@ -580,6 +736,11 @@ export function TournamentDetailsPage() {
       .filter((item) => item.place > 0)
       .sort((a, b) => a.place - b.place)
 
+    const resultUserIds = new Set(rows.map((item) => item.userId))
+    const missingParticipants = participants
+      .filter((item) => item.registration.status !== 'cancelled')
+      .filter((item) => !resultUserIds.has(item.user.id))
+
     if (rows.length === 0) {
       error('Заполни результаты перед завершением турнира')
       return
@@ -594,6 +755,31 @@ export function TournamentDetailsPage() {
       }
 
       usedPlaces.add(row.place)
+    }
+
+    if (missingParticipants.length > 0) {
+      setMissingResultsLogins(
+        missingParticipants.map((participant) => participant.user.login || `Игрок ${participant.user.id}`),
+      )
+      setIsFinalizeDialogOpen(false)
+      setIsMissingResultsDialogOpen(true)
+      return
+    }
+
+    await finalizeTournamentWithRows(rows)
+  }
+
+  const finalizeTournamentWithRows = async (
+    rows: Array<{
+      userId: number
+      place: number
+      isItm: boolean
+      points: number
+      bounty: number
+    }>,
+  ) => {
+    if (isFinalizingTournament) {
+      return
     }
 
     setIsFinalizingTournament(true)
@@ -611,9 +797,31 @@ export function TournamentDetailsPage() {
     setLocalSeriesId(finalizeSeriesId)
     setLocalStatus('completed')
     setResultsDraft({})
+    setMissingResultsLogins([])
     setIsEditingCompletedResults(false)
     setIsFinalizeDialogOpen(false)
+    setIsMissingResultsDialogOpen(false)
     success('Турнир завершён, результаты и очки сохранены')
+  }
+
+  const handleConfirmFinalizeWithMissingResults = async () => {
+    const rows = participants
+      .filter((item) => item.registration.status !== 'cancelled')
+      .map((item) => {
+        const draft = getResultDraft(item.user.id, item.result)
+
+        return {
+          userId: item.user.id,
+          place: draft.place,
+          isItm: draft.isItm,
+          points: draft.points,
+          bounty: draft.bounty,
+        }
+      })
+      .filter((item) => item.place > 0)
+      .sort((a, b) => a.place - b.place)
+
+    await finalizeTournamentWithRows(rows)
   }
 
   const handleMoveFromWaitlist = async (registrationId: number) => {
@@ -1171,6 +1379,14 @@ export function TournamentDetailsPage() {
                 disabledLabel="Добавляем пользователя..."
               />
             </div>
+            <button
+              type="button"
+              onClick={() => setIsManualUserDialogOpen(true)}
+              disabled={isAddingUser || isCreatingManualUser}
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Добавить вручную
+            </button>
           </div>
         </div>
 
@@ -1293,18 +1509,133 @@ export function TournamentDetailsPage() {
           </div>
         </div>
 
-        <input
-          type="search"
-          value={resultsQuery}
-          onChange={(event) => setResultsQuery(event.target.value)}
-          placeholder="Поиск по нику, @username, имени или ID"
-          className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-indigo-100 md:w-96"
-        />
+        <div className="rounded-xl border border-[var(--line)] bg-gray-50/60 p-4">
+          <div className="mb-3 space-y-1">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+              Добавить результат участника
+            </h3>
+            <p className="text-sm text-[var(--text-muted)]">
+              Найди участника турнира, заполни его место, очки, баунти и добавь в
+              список результатов.
+            </p>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,2.1fr)_110px_90px_110px_110px_auto]">
+            <SearchableSelect
+              label="Участник"
+              options={resultParticipantOptions}
+              value={resultEntryUserId}
+              onChange={setResultEntryUserId}
+              placeholder="Поиск по нику, @username или имени"
+              disabled={
+                resultParticipantOptions.length === 0 ||
+                (isTournamentCompleted && !isEditingCompletedResults)
+              }
+              disabledLabel={
+                resultParticipantOptions.length === 0
+                  ? 'Все участники уже добавлены'
+                  : undefined
+              }
+            />
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                Место
+              </span>
+              <input
+                type="number"
+                min={1}
+                value={resultEntryDraft.place}
+                onFocus={replaceLeadingZeroOnFocus}
+                onChange={(event) =>
+                  setResultEntryField('place', Number(event.target.value || 0))
+                }
+                disabled={isTournamentCompleted && !isEditingCompletedResults}
+                className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-[var(--text-muted)]"
+              />
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                ITM
+              </span>
+              <label className="flex h-[42px] items-center rounded-lg border border-[var(--line)] bg-white px-3">
+                <input
+                  type="checkbox"
+                  checked={resultEntryDraft.isItm}
+                  onChange={(event) =>
+                    setResultEntryField('isItm', event.target.checked)
+                  }
+                  disabled={isTournamentCompleted && !isEditingCompletedResults}
+                  className="h-4 w-4 rounded border-[var(--line)] text-[var(--accent)] focus:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                Очки
+              </span>
+              <input
+                type="number"
+                value={resultEntryDraft.points}
+                onFocus={replaceLeadingZeroOnFocus}
+                onChange={(event) =>
+                  setResultEntryField('points', Number(event.target.value || 0))
+                }
+                disabled={isTournamentCompleted && !isEditingCompletedResults}
+                className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-[var(--text-muted)]"
+              />
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                Баунти
+              </span>
+              <input
+                type="number"
+                value={resultEntryDraft.bounty}
+                onFocus={replaceLeadingZeroOnFocus}
+                onChange={(event) =>
+                  setResultEntryField('bounty', Number(event.target.value || 0))
+                }
+                disabled={isTournamentCompleted && !isEditingCompletedResults}
+                className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-[var(--text-muted)]"
+              />
+            </label>
+
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={handleAddResultEntry}
+                disabled={
+                  resultEntryUserId === 'none' ||
+                  (isTournamentCompleted && !isEditingCompletedResults)
+                }
+                className="w-full rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {duplicateResultPlaces.length > 0 ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Повторяются места: {duplicateResultPlaces.join(', ')}.
+          </div>
+        ) : null}
+
+        {missingResultPlaces.length > 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Пропущены места: {missingResultPlaces.join(', ')}.
+          </div>
+        ) : null}
 
         <DataTable
-          rows={filteredResultsParticipants}
+          rows={enteredResultsParticipants}
           getRowKey={(row) => row.user.id}
-          emptyLabel="Нет участников"
+          emptyLabel="Результаты ещё не внесены"
           columns={[
             { header: 'Игрок', render: (row) => row.user.login },
             {
@@ -1499,6 +1830,77 @@ export function TournamentDetailsPage() {
         onConfirm={() => void handleDeleteTournament()}
       />
 
+      {isManualUserDialogOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-gray-950/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-[var(--line)] bg-white p-6 shadow-2xl">
+            <h3 className="font-['Space_Grotesk'] text-lg font-bold text-[var(--text-primary)]">
+              Добавить участника вручную
+            </h3>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Создадим ручного пользователя в базе и сразу добавим его в этот турнир.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <FormField
+                label="Ник"
+                inputProps={{
+                  value: manualUserLogin,
+                  onChange: (event) => setManualUserLogin(event.target.value),
+                  placeholder: 'Например, ivan_offline',
+                }}
+              />
+
+              <FormField
+                label="Имя"
+                inputProps={{
+                  value: manualUserName,
+                  onChange: (event) => setManualUserName(event.target.value),
+                  placeholder: 'Необязательно',
+                }}
+              />
+
+              <FormField
+                label="Telegram username"
+                inputProps={{
+                  value: manualTelegramUsername,
+                  onChange: (event) =>
+                    setManualTelegramUsername(event.target.value.replace(/^@+/, '')),
+                  placeholder: 'Необязательно, без @',
+                }}
+              />
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isCreatingManualUser) {
+                    return
+                  }
+
+                  setIsManualUserDialogOpen(false)
+                  setManualUserLogin('')
+                  setManualUserName('')
+                  setManualTelegramUsername('')
+                }}
+                disabled={isCreatingManualUser}
+                className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCreateManualUser()}
+                disabled={isCreatingManualUser}
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCreatingManualUser ? 'Создаём...' : 'Создать и добавить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {isFinalizeDialogOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-gray-950/40 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-xl border border-[var(--line)] bg-white p-6 shadow-2xl">
@@ -1544,6 +1946,53 @@ export function TournamentDetailsPage() {
                 className="rounded-lg bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isFinalizingTournament ? 'Завершаем...' : 'Завершить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isMissingResultsDialogOpen ? (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-gray-950/45 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-xl border border-[var(--line)] bg-white p-6 shadow-2xl">
+            <h3 className="font-['Space_Grotesk'] text-lg font-bold text-[var(--text-primary)]">
+              Вы не внесли результаты
+            </h3>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Для этих участников результаты не заполнены. Они будут помечены как
+              не пришедшие и попадут в лист предоплаты.
+            </p>
+
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <ul className="space-y-1 text-sm text-amber-900">
+                {missingResultsLogins.map((login) => (
+                  <li key={login}>• {login}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isFinalizingTournament) {
+                    return
+                  }
+
+                  setIsMissingResultsDialogOpen(false)
+                }}
+                disabled={isFinalizingTournament}
+                className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Отменить
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmFinalizeWithMissingResults()}
+                disabled={isFinalizingTournament}
+                className="rounded-lg bg-[var(--danger)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isFinalizingTournament ? 'Завершаем...' : 'Да'}
               </button>
             </div>
           </div>
