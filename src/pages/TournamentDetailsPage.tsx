@@ -110,6 +110,9 @@ export function TournamentDetailsPage() {
   const [isEditingCompletedResults, setIsEditingCompletedResults] = useState(false)
   const [finalizeSeriesId, setFinalizeSeriesId] = useState('none')
   const [missingResultsLogins, setMissingResultsLogins] = useState<string[]>([])
+  const [hasHydratedResultsDraft, setHasHydratedResultsDraft] = useState(false)
+  const resultsDraftStorageKey =
+    tournamentId > 0 ? `tournament-results-draft:${tournamentId}` : null
 
   // Local form state for tournament fields (no per-keystroke mutations)
   const [localName, setLocalName] = useState('')
@@ -150,6 +153,63 @@ export function TournamentDetailsPage() {
       setBonusItems(tournament.prizeInfo?.trim() ? [tournament.prizeInfo] : [''])
     }
   }, [tournament, formDirty])
+
+  useEffect(() => {
+    if (!resultsDraftStorageKey || typeof window === 'undefined') {
+      return
+    }
+
+    setHasHydratedResultsDraft(false)
+
+    try {
+      const raw = window.localStorage.getItem(resultsDraftStorageKey)
+
+      if (!raw) {
+        setResultsDraft({})
+      } else {
+        const parsed = JSON.parse(raw) as Record<string, Partial<EditableResult>>
+        const nextDraft: Record<number, EditableResult> = {}
+
+        for (const [key, value] of Object.entries(parsed)) {
+          const userId = Number(key)
+
+          if (!Number.isInteger(userId) || !value) {
+            continue
+          }
+
+          nextDraft[userId] = {
+            place: Math.max(0, Number(value.place ?? 0)),
+            isItm: Boolean(value.isItm),
+            points: Math.max(0, Number(value.points ?? 0)),
+            bounty: Math.max(0, Number(value.bounty ?? 0)),
+          }
+        }
+
+        setResultsDraft(nextDraft)
+      }
+    } catch {
+      setResultsDraft({})
+    } finally {
+      setHasHydratedResultsDraft(true)
+    }
+  }, [resultsDraftStorageKey])
+
+  useEffect(() => {
+    if (
+      !resultsDraftStorageKey ||
+      typeof window === 'undefined' ||
+      !hasHydratedResultsDraft
+    ) {
+      return
+    }
+
+    if (Object.keys(resultsDraft).length === 0) {
+      window.localStorage.removeItem(resultsDraftStorageKey)
+      return
+    }
+
+    window.localStorage.setItem(resultsDraftStorageKey, JSON.stringify(resultsDraft))
+  }, [hasHydratedResultsDraft, resultsDraft, resultsDraftStorageKey])
 
   const medalOptions = [
     { value: 'none', label: 'Без медали' },
@@ -262,6 +322,39 @@ export function TournamentDetailsPage() {
     )
   }
 
+  const clearStoredResultsDraft = () => {
+    if (!resultsDraftStorageKey || typeof window === 'undefined') {
+      return
+    }
+
+    window.localStorage.removeItem(resultsDraftStorageKey)
+  }
+
+  const getParticipantDisplayName = (user: {
+    id: number
+    login?: string | null
+    name?: string | null
+  }) =>
+    user.login?.trim() || user.name?.trim() || `Игрок ${user.id}`
+
+  const getParticipantSelectLabel = (user: {
+    id: number
+    login?: string | null
+    telegramUsername?: string | null
+    name?: string | null
+  }) => {
+    const baseLabel = getParticipantDisplayName(user)
+    const extraParts = [
+      user.login?.trim() && user.login.trim() !== baseLabel ? user.login.trim() : null,
+      user.telegramUsername?.trim() ? `@${user.telegramUsername.trim()}` : null,
+      user.name?.trim() && user.name.trim() !== baseLabel ? user.name.trim() : null,
+    ].filter(Boolean)
+
+    return extraParts.length > 0
+      ? `${baseLabel} (${extraParts.join(' • ')})`
+      : baseLabel
+  }
+
   const buildParticipantsClipboardText = () => {
     const rows = participants
       .filter((participant) => participant.registration.status !== 'cancelled')
@@ -275,14 +368,10 @@ export function TournamentDetailsPage() {
     }
 
     const list = rows
-      .map((participant, index) => {
-        const label =
-          participant.user.login?.trim() ||
-          participant.user.name?.trim() ||
-          `Игрок ${participant.user.id}`
-
-        return `${index + 1}. ${label}`
-      })
+      .map(
+        (participant, index) =>
+          `${index + 1}. ${getParticipantDisplayName(participant.user)}`,
+      )
       .join('\n')
 
     return `Список игроков\n\n${list}`
@@ -422,18 +511,10 @@ export function TournamentDetailsPage() {
 
   const resultParticipantOptions = useMemo(
     () =>
-      availableResultParticipants.map((participant) => {
-        const username = participant.user.telegramUsername?.trim()
-        const name = participant.user.name?.trim()
-        const extraParts = [username ? `@${username}` : null, name || null].filter(Boolean)
-
-        return {
-          value: String(participant.user.id),
-          label: extraParts.length > 0
-            ? `${participant.user.login} (${extraParts.join(' • ')})`
-            : participant.user.login,
-        }
-      }),
+      availableResultParticipants.map((participant) => ({
+        value: String(participant.user.id),
+        label: getParticipantSelectLabel(participant.user),
+      })),
     [availableResultParticipants],
   )
 
@@ -559,14 +640,14 @@ export function TournamentDetailsPage() {
     const name = manualUserName.trim()
     const telegramUsername = manualTelegramUsername.trim().replace(/^@+/, '')
 
-    if (!login) {
-      error('Укажи ник или имя участника')
+    if (!login && !name) {
+      error('Укажи имя или ник участника')
       return
     }
 
     setIsCreatingManualUser(true)
     const createdUser = await createManualUser({
-      login,
+      login: login || undefined,
       name: name || undefined,
       telegramUsername: telegramUsername || undefined,
     })
@@ -600,6 +681,11 @@ export function TournamentDetailsPage() {
 
     if (resultEntryDraft.place < 1) {
       error('Укажи место участника')
+      return
+    }
+
+    if (resultEntryDraft.points <= 0 && resultEntryDraft.bounty <= 0) {
+      error('Укажи очки или баунти участника')
       return
     }
 
@@ -682,6 +768,8 @@ export function TournamentDetailsPage() {
       return
     }
 
+    clearStoredResultsDraft()
+    setResultsDraft({})
     setIsEditingCompletedResults(false)
     success('Изменения применены')
   }
@@ -759,7 +847,9 @@ export function TournamentDetailsPage() {
 
     if (missingParticipants.length > 0) {
       setMissingResultsLogins(
-        missingParticipants.map((participant) => participant.user.login || `Игрок ${participant.user.id}`),
+        missingParticipants.map((participant) =>
+          getParticipantDisplayName(participant.user),
+        ),
       )
       setIsFinalizeDialogOpen(false)
       setIsMissingResultsDialogOpen(true)
@@ -796,6 +886,7 @@ export function TournamentDetailsPage() {
 
     setLocalSeriesId(finalizeSeriesId)
     setLocalStatus('completed')
+    clearStoredResultsDraft()
     setResultsDraft({})
     setMissingResultsLogins([])
     setIsEditingCompletedResults(false)
@@ -1369,7 +1460,7 @@ export function TournamentDetailsPage() {
                   { value: 'none', label: 'Выбери пользователя' },
                   ...availableUsers.map((item) => ({
                     value: String(item.id),
-                    label: `${item.login} (${item.name})`,
+                    label: getParticipantSelectLabel(item),
                   })),
                 ]}
                 value={newUserId}
@@ -1395,8 +1486,8 @@ export function TournamentDetailsPage() {
           getRowKey={(row) => row.registration.id}
           columns={[
             { header: '№', render: (row) => row.displayOrder },
-            { header: 'Ник', render: (row) => row.user.login },
-            { header: 'Имя', render: (row) => row.user.name },
+            { header: 'Ник', render: (row) => row.user.login || '—' },
+            { header: 'Имя', render: (row) => row.user.name || '—' },
             {
               header: 'Username',
               render: (row) =>
@@ -1610,6 +1701,7 @@ export function TournamentDetailsPage() {
                 onClick={handleAddResultEntry}
                 disabled={
                   resultEntryUserId === 'none' ||
+                  (resultEntryDraft.points <= 0 && resultEntryDraft.bounty <= 0) ||
                   (isTournamentCompleted && !isEditingCompletedResults)
                 }
                 className="w-full rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -1637,7 +1729,7 @@ export function TournamentDetailsPage() {
           getRowKey={(row) => row.user.id}
           emptyLabel="Результаты ещё не внесены"
           columns={[
-            { header: 'Игрок', render: (row) => row.user.login },
+            { header: 'Игрок', render: (row) => getParticipantDisplayName(row.user) },
             {
               header: 'Регистрация',
               render: (row) => <StatusBadge status={row.registration.status} />,
@@ -1770,7 +1862,12 @@ export function TournamentDetailsPage() {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => void handleSetPrepay(row.user.id, row.user.login)}
+                        onClick={() =>
+                          void handleSetPrepay(
+                            row.user.id,
+                            getParticipantDisplayName(row.user),
+                          )
+                        }
                         disabled={pendingRegistrationId !== null}
                         className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
@@ -1837,7 +1934,7 @@ export function TournamentDetailsPage() {
               Добавить участника вручную
             </h3>
             <p className="mt-2 text-sm text-[var(--text-muted)]">
-              Создадим ручного пользователя в базе и сразу добавим его в этот турнир.
+              Создадим ручного пользователя в базе и сразу добавим его в этот турнир. Ник можно не заполнять, если есть только имя.
             </p>
 
             <div className="mt-4 space-y-3">
@@ -1846,7 +1943,7 @@ export function TournamentDetailsPage() {
                 inputProps={{
                   value: manualUserLogin,
                   onChange: (event) => setManualUserLogin(event.target.value),
-                  placeholder: 'Например, ivan_offline',
+                  placeholder: 'Необязательно',
                 }}
               />
 
@@ -1855,7 +1952,7 @@ export function TournamentDetailsPage() {
                 inputProps={{
                   value: manualUserName,
                   onChange: (event) => setManualUserName(event.target.value),
-                  placeholder: 'Необязательно',
+                  placeholder: 'Например, Иван офлайн',
                 }}
               />
 

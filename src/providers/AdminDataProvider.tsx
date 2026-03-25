@@ -434,7 +434,7 @@ type AdminDataContextValue = {
   setUserStatus: (userId: number, statusId: number | null) => Promise<boolean>
   updateUserLogin: (userId: number, login: string) => Promise<boolean>
   createManualUser: (input: {
-    login: string
+    login?: string
     name?: string
     telegramUsername?: string
   }) => Promise<ClubUser | null>
@@ -1136,7 +1136,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
   )
 
   const createManualUser = useCallback(
-    async (input: { login: string; name?: string; telegramUsername?: string }) => {
+    async (input: { login?: string; name?: string; telegramUsername?: string }) => {
       return (await runAndRefresh(() =>
         createManualUserMutation.mutateAsync(input),
       )) as ClubUser | null
