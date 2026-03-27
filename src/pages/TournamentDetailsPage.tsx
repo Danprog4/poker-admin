@@ -92,6 +92,7 @@ export function TournamentDetailsPage() {
   const [manualUserName, setManualUserName] = useState('')
   const [manualTelegramUsername, setManualTelegramUsername] = useState('')
   const [manualUserCandidate, setManualUserCandidate] = useState<ClubUser | null>(null)
+  const [manualUserErrorMessage, setManualUserErrorMessage] = useState<string | null>(null)
   const [resultEntryUserId, setResultEntryUserId] = useState('none')
   const [resultEntryDraft, setResultEntryDraft] = useState<EditableResult>({
     place: 0,
@@ -476,12 +477,6 @@ export function TournamentDetailsPage() {
       }))
   }, [participantQuery, participants, resultsDraft])
 
-  const activeParticipantIds = new Set(
-    participants
-      .filter((item) => item.registration.status !== 'cancelled')
-      .map((item) => item.user.id),
-  )
-
   const enteredResultsParticipants = useMemo(
     () =>
       participants
@@ -562,7 +557,13 @@ export function TournamentDetailsPage() {
       .sort((a, b) => a - b)
   }, [enteredResultsParticipants, resultsDraft])
 
-  const availableUsers = state.users.filter((item) => !activeParticipantIds.has(item.id))
+  const activeParticipantIds = new Set(
+    participants
+      .filter((item) => item.registration.status !== 'cancelled')
+      .map((item) => item.user.id),
+  )
+
+  const searchableUsers = state.users
 
   const handleSaveTournament = async () => {
     if (isSavingTournament) {
@@ -630,15 +631,18 @@ export function TournamentDetailsPage() {
     }
 
     setIsAddingUser(true)
-    const added = await addRegistration(tournament.id, Number(nextUserId))
+    const result = await addRegistration(tournament.id, Number(nextUserId))
     setIsAddingUser(false)
 
-    if (!added) {
-      error('Не удалось добавить пользователя в турнир')
+    if (!result.ok) {
+      const message = result.errorMessage ?? 'Не удалось добавить пользователя в турнир'
+      setManualUserErrorMessage(message)
+      error(message)
       return false
     }
 
     setNewUserId('none')
+    setManualUserErrorMessage(null)
     success('Пользователь добавлен в список участников')
     return true
   }
@@ -657,6 +661,8 @@ export function TournamentDetailsPage() {
       return
     }
 
+    setManualUserErrorMessage(null)
+
     let existingCandidate: ClubUser | null = null
 
     try {
@@ -673,13 +679,20 @@ export function TournamentDetailsPage() {
     }
 
     if (existingCandidate) {
+      if (activeParticipantIds.has(existingCandidate.id)) {
+        setManualUserErrorMessage('Этот игрок уже есть на турнире')
+        setManualUserCandidate(null)
+        setIsSubmittingManualUser(false)
+        return
+      }
+
       setManualUserCandidate(existingCandidate)
       setIsSubmittingManualUser(false)
       return
     }
 
     setIsCreatingManualUser(true)
-    const createdUser = await createManualUser({
+    const { user: createdUser, errorMessage } = await createManualUser({
       login: login || undefined,
       name: name || undefined,
       telegramUsername: telegramUsername || undefined,
@@ -688,7 +701,7 @@ export function TournamentDetailsPage() {
     if (!createdUser) {
       setIsCreatingManualUser(false)
       setIsSubmittingManualUser(false)
-      error('Не удалось создать ручного участника')
+      setManualUserErrorMessage(errorMessage ?? 'Не удалось создать ручного участника')
       return
     }
 
@@ -707,6 +720,7 @@ export function TournamentDetailsPage() {
     setManualUserName('')
     setManualTelegramUsername('')
     setManualUserCandidate(null)
+    setManualUserErrorMessage(null)
     success('Ручной участник создан и добавлен в турнир')
   }
 
@@ -721,6 +735,7 @@ export function TournamentDetailsPage() {
     setManualUserName('')
     setManualTelegramUsername('')
     setManualUserCandidate(null)
+    setManualUserErrorMessage(null)
   }
 
   const handleAddExistingManualCandidate = async () => {
@@ -1119,6 +1134,7 @@ export function TournamentDetailsPage() {
     setAddParticipantMode('new')
     setNewUserId('none')
     setManualUserCandidate(null)
+    setManualUserErrorMessage(null)
     setManualUserName(query)
     setManualUserLogin(query)
     setManualTelegramUsername('')
@@ -2012,7 +2028,7 @@ export function TournamentDetailsPage() {
               Добавить участника
             </h3>
             <p className="mt-2 text-sm text-[var(--text-muted)]">
-              Вы можете добавить уже существующего пользователя по нику или имени, либо создать нового участника.
+              Выберите пользователя, который ещё не участвует в турнире, либо создайте нового участника.
             </p>
 
             <div className="mt-4 space-y-3">
@@ -2020,9 +2036,11 @@ export function TournamentDetailsPage() {
                 label="Добавить участника"
                 options={[
                   { value: 'none', label: 'Выбери пользователя' },
-                  ...availableUsers.map((item) => ({
+                  ...searchableUsers.map((item) => ({
                     value: String(item.id),
                     label: getParticipantSelectLabel(item),
+                    disabled: activeParticipantIds.has(item.id),
+                    disabledLabel: activeParticipantIds.has(item.id) ? 'Уже на турнире' : undefined,
                   })),
                 ]}
                 value={newUserId}
@@ -2088,6 +2106,12 @@ export function TournamentDetailsPage() {
                     ? ` • @${manualUserCandidate.telegramUsername}`
                     : ''}
                 </p>
+              </div>
+            ) : null}
+
+            {manualUserErrorMessage ? (
+              <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                {manualUserErrorMessage}
               </div>
             ) : null}
 

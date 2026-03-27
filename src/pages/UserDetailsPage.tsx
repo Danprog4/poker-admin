@@ -174,11 +174,11 @@ export function UserDetailsPage() {
     }
 
     setIsAddingTournament(true)
-    const added = await addRegistration(Number(selectedTournamentId), user.id)
+    const result = await addRegistration(Number(selectedTournamentId), user.id)
     setIsAddingTournament(false)
 
-    if (!added) {
-      error('Не удалось записать пользователя на турнир')
+    if (!result.ok) {
+      error(result.errorMessage ?? 'Не удалось записать пользователя на турнир')
       return
     }
 

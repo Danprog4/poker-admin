@@ -183,6 +183,11 @@ type RawBroadcast = {
   createdAt: string | Date
 }
 
+type MutationResult = {
+  ok: boolean
+  errorMessage: string | null
+}
+
 type RawBootstrapState = {
   statuses?: RawStatus[]
   achievements?: RawAchievement[]
@@ -401,7 +406,7 @@ type AdminDataContextValue = {
   ) => Promise<boolean>
   deleteTournament: (tournamentId: number) => Promise<boolean>
   updateTournamentStatus: (tournamentId: number, status: TournamentStatus) => Promise<boolean>
-  addRegistration: (tournamentId: number, userId: number) => Promise<boolean>
+  addRegistration: (tournamentId: number, userId: number) => Promise<MutationResult>
   cancelRegistration: (registrationId: number) => Promise<boolean>
   confirmRegistration: (registrationId: number) => Promise<boolean>
   updateRegistrationBadges: (
@@ -437,7 +442,7 @@ type AdminDataContextValue = {
     login?: string
     name?: string
     telegramUsername?: string
-  }) => Promise<ClubUser | null>
+  }) => Promise<{ user: ClubUser | null; errorMessage: string | null }>
   findManualUserCandidate: (input: {
     login?: string
     telegramUsername?: string
@@ -902,13 +907,24 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
 
   const addRegistration = useCallback(
     async (tournamentId: number, userId: number) => {
-      const result = await runAndRefresh(() =>
-        addRegistrationMutation.mutateAsync({ tournamentId, userId }),
-      )
+      try {
+        await addRegistrationMutation.mutateAsync({ tournamentId, userId })
+        await refresh()
 
-      return result !== null
+        return { ok: true, errorMessage: null }
+      } catch (error) {
+        console.error(error)
+
+        return {
+          ok: false,
+          errorMessage:
+            error instanceof Error && error.message
+              ? error.message
+              : 'Не удалось добавить пользователя в турнир',
+        }
+      }
     },
-    [addRegistrationMutation, runAndRefresh],
+    [addRegistrationMutation, refresh],
   )
 
   const cancelRegistration = useCallback(
@@ -1143,11 +1159,25 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
 
   const createManualUser = useCallback(
     async (input: { login?: string; name?: string; telegramUsername?: string }) => {
-      return (await runAndRefresh(() =>
-        createManualUserMutation.mutateAsync(input),
-      )) as ClubUser | null
+      try {
+        const result = await createManualUserMutation.mutateAsync(input)
+        await refresh()
+
+        return {
+          user: result as ClubUser,
+          errorMessage: null,
+        }
+      } catch (error) {
+        console.error(error)
+
+        return {
+          user: null,
+          errorMessage:
+            error instanceof Error ? error.message : 'Не удалось создать ручного участника',
+        }
+      }
     },
-    [createManualUserMutation, runAndRefresh],
+    [createManualUserMutation, refresh],
   )
 
   const findManualUserCandidate = useCallback(

@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 type Option = {
   value: string
   label: string
+  disabled?: boolean
+  disabledLabel?: string
 }
 
 type SearchableSelectProps = {
@@ -33,7 +35,8 @@ export function SearchableSelect({
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const selectedLabel = options.find((item) => item.value === value)?.label ?? ''
+  const selectedOption = options.find((item) => item.value === value)
+  const selectedLabel = selectedOption?.label ?? ''
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -122,18 +125,38 @@ export function SearchableSelect({
                 <li key={option.value}>
                   <button
                     type="button"
+                    disabled={option.disabled}
                     onClick={() => {
+                      if (option.disabled) {
+                        return
+                      }
+
                       onChange(option.value)
                       setOpen(false)
                       setQuery('')
                     }}
-                    className={`w-full px-3 py-2 text-left text-sm transition hover:bg-[var(--accent-soft)] ${
-                      option.value === value
-                        ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent)]'
-                        : 'text-[var(--text-primary)]'
+                    className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition ${
+                      option.disabled
+                        ? 'cursor-not-allowed text-[var(--text-muted)] opacity-70'
+                        : option.value === value
+                          ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent)] hover:bg-[var(--accent-soft)]'
+                          : 'text-[var(--text-primary)] hover:bg-[var(--accent-soft)]'
                     }`}
                   >
-                    {option.label}
+                    <span className="min-w-0 truncate">{option.label}</span>
+                    {option.disabledLabel ? (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[var(--line)] bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-[var(--text-muted)]">
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path
+                            d="M4 4l8 8M12 4L4 12"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                        {option.disabledLabel}
+                      </span>
+                    ) : null}
                   </button>
                 </li>
               ))
