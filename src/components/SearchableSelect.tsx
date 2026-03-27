@@ -10,6 +10,8 @@ type SearchableSelectProps = {
   options: Option[]
   value: string
   onChange: (value: string) => void
+  onCreateOption?: (query: string) => void
+  createOptionLabel?: (query: string) => string
   placeholder?: string
   disabled?: boolean
   disabledLabel?: string
@@ -20,6 +22,8 @@ export function SearchableSelect({
   options,
   value,
   onChange,
+  onCreateOption,
+  createOptionLabel,
   placeholder = 'Поиск...',
   disabled = false,
   disabledLabel,
@@ -96,7 +100,23 @@ export function SearchableSelect({
           </div>
           <ul className="max-h-60 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <li className="px-3 py-2 text-sm text-[var(--text-muted)]">Ничего не найдено</li>
+              onCreateOption && query.trim() ? (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCreateOption(query.trim())
+                      setOpen(false)
+                      setQuery('')
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm font-medium text-[var(--accent)] transition hover:bg-[var(--accent-soft)]"
+                  >
+                    {createOptionLabel ? createOptionLabel(query.trim()) : `Создать "${query.trim()}"`}
+                  </button>
+                </li>
+              ) : (
+                <li className="px-3 py-2 text-sm text-[var(--text-muted)]">Ничего не найдено</li>
+              )
             ) : (
               filtered.map((option) => (
                 <li key={option.value}>

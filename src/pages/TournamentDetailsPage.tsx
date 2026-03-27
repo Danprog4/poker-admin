@@ -12,6 +12,7 @@ import {
   TournamentDetailPreview,
 } from '../components/TournamentPreview'
 import type {
+  ClubUser,
   TournamentResult,
   TournamentStatus,
 } from '../lib/admin-models'
@@ -38,6 +39,8 @@ type EditableResult = {
   points: number
   bounty: number
 }
+
+type AddParticipantMode = 'idle' | 'new'
 
 const statusOptions: Array<{ value: TournamentStatus; label: string }> = [
   { value: 'upcoming', label: 'Предстоит' },
@@ -68,6 +71,7 @@ export function TournamentDetailsPage() {
     moveFromWaitlist,
     setUserPrepay,
     createManualUser,
+    findManualUserCandidate,
     saveTournamentResults,
     deleteResult,
   } = useAdminData()
@@ -83,9 +87,11 @@ export function TournamentDetailsPage() {
 
   const [newUserId, setNewUserId] = useState('none')
   const [isManualUserDialogOpen, setIsManualUserDialogOpen] = useState(false)
+  const [addParticipantMode, setAddParticipantMode] = useState<AddParticipantMode>('idle')
   const [manualUserLogin, setManualUserLogin] = useState('')
   const [manualUserName, setManualUserName] = useState('')
   const [manualTelegramUsername, setManualTelegramUsername] = useState('')
+  const [manualUserCandidate, setManualUserCandidate] = useState<ClubUser | null>(null)
   const [resultEntryUserId, setResultEntryUserId] = useState('none')
   const [resultEntryDraft, setResultEntryDraft] = useState<EditableResult>({
     place: 0,
@@ -98,6 +104,7 @@ export function TournamentDetailsPage() {
   const [isSavingTournament, setIsSavingTournament] = useState(false)
   const [isAddingUser, setIsAddingUser] = useState(false)
   const [isCreatingManualUser, setIsCreatingManualUser] = useState(false)
+  const [isSubmittingManualUser, setIsSubmittingManualUser] = useState(false)
   const [isSavingResults, setIsSavingResults] = useState(false)
   const [isCancellingRegistration, setIsCancellingRegistration] = useState(false)
   const [isDeletingTournament, setIsDeletingTournament] = useState(false)
@@ -613,13 +620,13 @@ export function TournamentDetailsPage() {
 
   const handleAddUser = async (userIdValue?: string) => {
     if (isAddingUser) {
-      return
+      return false
     }
 
     const nextUserId = userIdValue ?? newUserId
 
     if (nextUserId === 'none') {
-      return
+      return false
     }
 
     setIsAddingUser(true)
@@ -628,20 +635,46 @@ export function TournamentDetailsPage() {
 
     if (!added) {
       error('Не удалось добавить пользователя в турнир')
-      return
+      return false
     }
 
     setNewUserId('none')
     success('Пользователь добавлен в список участников')
+    return true
   }
 
   const handleCreateManualUser = async () => {
+    if (isSubmittingManualUser) {
+      return
+    }
+
     const login = manualUserLogin.trim()
     const name = manualUserName.trim()
     const telegramUsername = manualTelegramUsername.trim().replace(/^@+/, '')
 
-    if (!login && !name) {
-      error('Укажи имя или ник участника')
+    if (!name) {
+      error('Укажи имя участника')
+      return
+    }
+
+    let existingCandidate: ClubUser | null = null
+
+    try {
+      setIsSubmittingManualUser(true)
+      existingCandidate = await findManualUserCandidate({
+        login: login || undefined,
+        telegramUsername: telegramUsername || undefined,
+      })
+    } catch (cause) {
+      setIsSubmittingManualUser(false)
+      const message = cause instanceof Error ? cause.message : 'Не удалось проверить пользователя'
+      error(message)
+      return
+    }
+
+    if (existingCandidate) {
+      setManualUserCandidate(existingCandidate)
+      setIsSubmittingManualUser(false)
       return
     }
 
@@ -654,12 +687,14 @@ export function TournamentDetailsPage() {
 
     if (!createdUser) {
       setIsCreatingManualUser(false)
+      setIsSubmittingManualUser(false)
       error('Не удалось создать ручного участника')
       return
     }
 
     const added = await addRegistration(tournament.id, createdUser.id)
     setIsCreatingManualUser(false)
+    setIsSubmittingManualUser(false)
 
     if (!added) {
       error('Пользователь создан, но в турнир добавить его не удалось')
@@ -667,10 +702,45 @@ export function TournamentDetailsPage() {
     }
 
     setIsManualUserDialogOpen(false)
+    setAddParticipantMode('idle')
     setManualUserLogin('')
     setManualUserName('')
     setManualTelegramUsername('')
+    setManualUserCandidate(null)
     success('Ручной участник создан и добавлен в турнир')
+  }
+
+  const resetManualUserDialog = () => {
+    if (isCreatingManualUser || isSubmittingManualUser) {
+      return
+    }
+
+    setIsManualUserDialogOpen(false)
+    setAddParticipantMode('idle')
+    setManualUserLogin('')
+    setManualUserName('')
+    setManualTelegramUsername('')
+    setManualUserCandidate(null)
+  }
+
+  const handleAddExistingManualCandidate = async () => {
+    if (!manualUserCandidate || isCreatingManualUser || isSubmittingManualUser) {
+      return
+    }
+
+    setIsSubmittingManualUser(true)
+    setIsCreatingManualUser(true)
+    const added = await addRegistration(tournament.id, manualUserCandidate.id)
+    setIsCreatingManualUser(false)
+    setIsSubmittingManualUser(false)
+
+    if (!added) {
+      error('Не удалось добавить существующего пользователя в турнир')
+      return
+    }
+
+    resetManualUserDialog()
+    success('Существующий пользователь добавлен в турнир')
   }
 
   const handleAddResultEntry = () => {
@@ -1018,10 +1088,40 @@ export function TournamentDetailsPage() {
 
   const handleSelectUser = (value: string) => {
     setNewUserId(value)
+    setAddParticipantMode('idle')
+    setManualUserCandidate(null)
+  }
 
-    if (value !== 'none') {
-      void handleAddUser(value)
+  const handleOpenAddParticipantDialog = () => {
+    setAddParticipantMode('idle')
+    setNewUserId('none')
+    setManualUserLogin('')
+    setManualUserName('')
+    setManualTelegramUsername('')
+    setManualUserCandidate(null)
+    setIsManualUserDialogOpen(true)
+  }
+
+  const handleSubmitAddParticipant = async () => {
+    if (newUserId !== 'none') {
+      const added = await handleAddUser(newUserId)
+
+      if (added) {
+        resetManualUserDialog()
+      }
+      return
     }
+
+    await handleCreateManualUser()
+  }
+
+  const handleCreateParticipantFromSearch = (query: string) => {
+    setAddParticipantMode('new')
+    setNewUserId('none')
+    setManualUserCandidate(null)
+    setManualUserName(query)
+    setManualUserLogin(query)
+    setManualTelegramUsername('')
   }
 
   const handleClearPrepay = async (userId: number) => {
@@ -1117,9 +1217,6 @@ export function TournamentDetailsPage() {
     }
   }
 
-  const isBeforeTournamentStart =
-    tournament.status === 'upcoming' &&
-    new Date(tournament.date).valueOf() > Date.now()
   const isTournamentCompleted =
     tournament.status === 'completed' || localStatus === 'completed'
 
@@ -1444,39 +1541,20 @@ export function TournamentDetailsPage() {
               placeholder="Поиск по нику, @username, имени или ID"
               className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-indigo-100 md:w-96"
             />
-            {isBeforeTournamentStart ? (
-              <button
-                type="button"
-                onClick={() => void handleCopyResults()}
-                className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
-              >
-                Скопировать участников
-              </button>
-            ) : null}
-            <div className="min-w-56">
-              <SearchableSelect
-                label="Добавить пользователя"
-                options={[
-                  { value: 'none', label: 'Выбери пользователя' },
-                  ...availableUsers.map((item) => ({
-                    value: String(item.id),
-                    label: getParticipantSelectLabel(item),
-                  })),
-                ]}
-                value={newUserId}
-                onChange={handleSelectUser}
-                placeholder="Поиск по нику или имени..."
-                disabled={isAddingUser}
-                disabledLabel="Добавляем пользователя..."
-              />
-            </div>
             <button
               type="button"
-              onClick={() => setIsManualUserDialogOpen(true)}
-              disabled={isAddingUser || isCreatingManualUser}
-              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void handleCopyResults()}
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium text-[var(--text-secondary)] transition hover:bg-gray-50"
             >
-              Добавить вручную
+              Скопировать участников
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenAddParticipantDialog}
+              disabled={isAddingUser || isCreatingManualUser || isSubmittingManualUser}
+              className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Добавить участника
             </button>
           </div>
         </div>
@@ -1931,67 +2009,151 @@ export function TournamentDetailsPage() {
         <div className="fixed inset-0 z-50 grid place-items-center bg-gray-950/40 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-xl border border-[var(--line)] bg-white p-6 shadow-2xl">
             <h3 className="font-['Space_Grotesk'] text-lg font-bold text-[var(--text-primary)]">
-              Добавить участника вручную
+              Добавить участника
             </h3>
             <p className="mt-2 text-sm text-[var(--text-muted)]">
-              Создадим ручного пользователя в базе и сразу добавим его в этот турнир. Ник можно не заполнять, если есть только имя.
+              Вы можете добавить уже существующего пользователя по нику или имени, либо создать нового участника.
             </p>
 
             <div className="mt-4 space-y-3">
-              <FormField
-                label="Ник"
-                inputProps={{
-                  value: manualUserLogin,
-                  onChange: (event) => setManualUserLogin(event.target.value),
-                  placeholder: 'Необязательно',
-                }}
+              <SearchableSelect
+                label="Добавить участника"
+                options={[
+                  { value: 'none', label: 'Выбери пользователя' },
+                  ...availableUsers.map((item) => ({
+                    value: String(item.id),
+                    label: getParticipantSelectLabel(item),
+                  })),
+                ]}
+                value={newUserId}
+                onChange={handleSelectUser}
+                onCreateOption={handleCreateParticipantFromSearch}
+                createOptionLabel={(query) => `Создать нового: ${query}`}
+                placeholder="Поиск по нику или имени"
+                disabled={isCreatingManualUser || isSubmittingManualUser}
+                disabledLabel="Проверяем..."
               />
 
-              <FormField
-                label="Имя"
-                inputProps={{
-                  value: manualUserName,
-                  onChange: (event) => setManualUserName(event.target.value),
-                  placeholder: 'Например, Иван офлайн',
-                }}
-              />
+              {addParticipantMode === 'new' ? (
+                <>
+                  <FormField
+                    label="Имя"
+                    inputProps={{
+                      value: manualUserName,
+                      onChange: (event) => {
+                        setNewUserId('none')
+                        setManualUserName(event.target.value)
+                        setManualUserCandidate(null)
+                      },
+                      placeholder: 'Имя (обязательно)',
+                    }}
+                  />
 
-              <FormField
-                label="Telegram username"
-                inputProps={{
-                  value: manualTelegramUsername,
-                  onChange: (event) =>
-                    setManualTelegramUsername(event.target.value.replace(/^@+/, '')),
-                  placeholder: 'Необязательно, без @',
-                }}
-              />
+                  <FormField
+                    label="Ник"
+                    inputProps={{
+                      value: manualUserLogin,
+                      onChange: (event) => {
+                        setNewUserId('none')
+                        setManualUserLogin(event.target.value)
+                        setManualUserCandidate(null)
+                      },
+                      placeholder: 'Ник',
+                    }}
+                  />
+
+                  <FormField
+                    label="Telegram username"
+                    inputProps={{
+                      value: manualTelegramUsername,
+                      onChange: (event) => {
+                        setNewUserId('none')
+                        setManualTelegramUsername(event.target.value.replace(/^@+/, ''))
+                        setManualUserCandidate(null)
+                      },
+                      placeholder: 'Необязательно, без @',
+                    }}
+                  />
+                </>
+              ) : null}
             </div>
+
+            {addParticipantMode === 'new' && manualUserCandidate ? (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p className="font-semibold">Такой пользователь уже существует. Вы хотите добавить его?</p>
+                <p className="mt-1 text-amber-800">
+                  {manualUserCandidate.name || manualUserCandidate.login || 'Без имени'}
+                  {manualUserCandidate.login ? ` • ${manualUserCandidate.login}` : ''}
+                  {manualUserCandidate.telegramUsername
+                    ? ` • @${manualUserCandidate.telegramUsername}`
+                    : ''}
+                </p>
+              </div>
+            ) : null}
 
             <div className="mt-6 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  if (isCreatingManualUser) {
-                    return
-                  }
-
-                  setIsManualUserDialogOpen(false)
-                  setManualUserLogin('')
-                  setManualUserName('')
-                  setManualTelegramUsername('')
-                }}
-                disabled={isCreatingManualUser}
+                onClick={() => resetManualUserDialog()}
+                disabled={isCreatingManualUser || isSubmittingManualUser}
                 className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Отмена
+                {manualUserCandidate ? 'Нет' : 'Отмена'}
               </button>
               <button
                 type="button"
-                onClick={() => void handleCreateManualUser()}
-                disabled={isCreatingManualUser}
+                onClick={() =>
+                  void (manualUserCandidate
+                    ? handleAddExistingManualCandidate()
+                    : handleSubmitAddParticipant())
+                }
+                disabled={
+                  isCreatingManualUser ||
+                  isSubmittingManualUser ||
+                  (addParticipantMode === 'idle' && newUserId === 'none')
+                }
                 className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isCreatingManualUser ? 'Создаём...' : 'Создать и добавить'}
+                <span className="inline-flex items-center gap-2">
+                  {isCreatingManualUser || isSubmittingManualUser ? (
+                    <svg
+                      className="h-4 w-4 animate-spin"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="9"
+                        stroke="currentColor"
+                        strokeOpacity="0.28"
+                        strokeWidth="2"
+                      />
+                      <path
+                        d="M21 12a9 9 0 0 0-9-9"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  ) : null}
+                  <span>
+                    {isCreatingManualUser || isSubmittingManualUser
+                      ? manualUserCandidate
+                        ? 'Добавляем...'
+                        : isCreatingManualUser
+                          ? newUserId !== 'none'
+                            ? 'Добавляем...'
+                            : 'Создаём...'
+                          : 'Проверяем...'
+                      : manualUserCandidate
+                        ? 'Да'
+                        : newUserId !== 'none'
+                          ? 'Добавить'
+                          : 'Создать и добавить'}
+                  </span>
+                </span>
               </button>
             </div>
           </div>

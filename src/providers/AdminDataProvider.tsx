@@ -438,6 +438,10 @@ type AdminDataContextValue = {
     name?: string
     telegramUsername?: string
   }) => Promise<ClubUser | null>
+  findManualUserCandidate: (input: {
+    login?: string
+    telegramUsername?: string
+  }) => Promise<ClubUser | null>
   createAdjustment: (input: CreateAdjustmentInput) => Promise<boolean>
   deleteAdjustment: (adjustmentId: number) => Promise<boolean>
   createStatus: (input: CreateStatusInput) => Promise<boolean>
@@ -500,6 +504,8 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
   const setUserPrepayMutation = trpc.admin.users.setPrepay.useMutation()
   const setUserStatusMutation = trpc.admin.users.setStatus.useMutation()
   const updateUserLoginMutation = trpc.admin.users.updateLogin.useMutation()
+  const findManualUserCandidateMutation =
+    trpc.admin.users.findManualCandidate.useMutation()
   const createManualUserMutation = trpc.admin.users.createManual.useMutation()
 
   const createAdjustmentMutation = trpc.admin.adjustments.create.useMutation()
@@ -1144,6 +1150,13 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
     [createManualUserMutation, runAndRefresh],
   )
 
+  const findManualUserCandidate = useCallback(
+    async (input: { login?: string; telegramUsername?: string }) => {
+      return (await findManualUserCandidateMutation.mutateAsync(input)) as ClubUser | null
+    },
+    [findManualUserCandidateMutation],
+  )
+
   const createAdjustment = useCallback(
     async (input: CreateAdjustmentInput) => {
       const result = await runAndRefresh(() =>
@@ -1357,6 +1370,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       setUserStatus,
       updateUserLogin,
       createManualUser,
+      findManualUserCandidate,
       createAdjustment,
       deleteAdjustment,
       createStatus,
