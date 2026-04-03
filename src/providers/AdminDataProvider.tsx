@@ -471,6 +471,7 @@ export const AdminDataContext = createContext<AdminDataContextValue | null>(null
 
 export function AdminDataProvider({ children }: PropsWithChildren) {
   const [nowTs] = useState(() => Date.now())
+  const [hiddenSeriesIds, setHiddenSeriesIds] = useState<number[]>([])
   const meQuery = trpc.adminAuth.me.useQuery(undefined, {
     retry: false,
     staleTime: 60_000,
@@ -570,12 +571,24 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       return EMPTY_STATE
     }
 
-    return normalizeState(bootstrapQuery.data)
-  }, [bootstrapQuery.data])
+    const nextState = normalizeState(bootstrapQuery.data)
+
+    if (hiddenSeriesIds.length === 0) {
+      return nextState
+    }
+
+    return {
+      ...nextState,
+      series: nextState.series.filter((item) => !hiddenSeriesIds.includes(item.id)),
+    }
+  }, [bootstrapQuery.data, hiddenSeriesIds])
 
   const allSeries = useMemo(
-    () => normalizeSeriesList(bootstrapQuery.data?.series, true),
-    [bootstrapQuery.data?.series],
+    () =>
+      normalizeSeriesList(bootstrapQuery.data?.series, true).filter(
+        (item) => !hiddenSeriesIds.includes(item.id),
+      ),
+    [bootstrapQuery.data?.series, hiddenSeriesIds],
   )
 
   const isBootstrapping = bootstrapQuery.isPending && !bootstrapQuery.data
@@ -1110,6 +1123,12 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
       const result = await runAndRefresh(() =>
         deleteSeriesMutation.mutateAsync({ seriesId }),
       )
+
+      if (result !== null) {
+        setHiddenSeriesIds((previous) =>
+          previous.includes(seriesId) ? previous : [...previous, seriesId],
+        )
+      }
 
       return result !== null
     },
