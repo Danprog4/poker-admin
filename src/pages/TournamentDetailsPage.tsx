@@ -471,10 +471,6 @@ export function TournamentDetailsPage() {
           left.registration.registrationNumber - right.registration.registrationNumber
         )
       })
-      .map((participant, index) => ({
-        ...participant,
-        displayOrder: index + 1,
-      }))
   }, [participantQuery, participants, resultsDraft])
 
   const enteredResultsParticipants = useMemo(
@@ -1579,7 +1575,7 @@ export function TournamentDetailsPage() {
           rows={orderedParticipants}
           getRowKey={(row) => row.registration.id}
           columns={[
-            { header: '№', render: (row) => row.displayOrder },
+            { header: '№', render: (row) => row.registration.registrationNumber },
             { header: 'Ник', render: (row) => row.user.login || '—' },
             { header: 'Имя', render: (row) => row.user.name || '—' },
             {
