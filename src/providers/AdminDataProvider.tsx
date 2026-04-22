@@ -173,6 +173,7 @@ type RawUserAchievement = {
 type RawBroadcast = {
   id: number
   message: string
+  imageUrl?: string | null
   targetFilter: BroadcastTargetFilter
   targetUserIds?: number[] | string | null
   targetSeriesId?: number | null
@@ -350,6 +351,7 @@ const normalizeState = (raw: RawBootstrapState | null | undefined): AdminDataSta
       (item): Broadcast => ({
         id: item.id,
         message: item.message,
+        imageUrl: item.imageUrl ?? null,
         targetFilter: item.targetFilter,
         targetUserIds: toNumberArray(item.targetUserIds),
         targetSeriesId: item.targetSeriesId ?? null,
@@ -1334,6 +1336,7 @@ export function AdminDataProvider({ children }: PropsWithChildren) {
         updateBroadcastMutation.mutateAsync({
           broadcastId,
           message: input.message,
+          imageUrl: input.imageUrl,
           targetFilter: input.targetFilter,
           targetUserIds: input.targetUserIds,
           targetSeriesId: input.targetSeriesId,

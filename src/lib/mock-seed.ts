@@ -464,6 +464,7 @@ export const initialAdminData: AdminDataState = {
     {
       id: 1,
       message: 'Напоминание о турнире сегодня в 20:00',
+      imageUrl: null,
       targetFilter: 'all',
       targetUserIds: [],
       targetSeriesId: null,
@@ -476,6 +477,7 @@ export const initialAdminData: AdminDataState = {
     {
       id: 2,
       message: 'Подтвердите участие и предоплату',
+      imageUrl: null,
       targetFilter: 'registered',
       targetUserIds: [],
       targetSeriesId: null,

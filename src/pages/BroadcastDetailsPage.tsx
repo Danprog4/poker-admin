@@ -1,10 +1,18 @@
-import { useMemo, useState } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
+import { BroadcastPreview } from '../components/BroadcastPreview'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { FormField } from '../components/FormField'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatDateTime } from '../lib/date'
+import { fileToDataUrl } from '../lib/imageUpload'
 import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
 
@@ -19,9 +27,13 @@ export function BroadcastDetailsPage() {
   const broadcast = state.broadcasts.find((item) => item.id === broadcastId)
   const [openConfirm, setOpenConfirm] = useState(false)
   const [draftMessage, setDraftMessage] = useState('')
-  const [isDirty, setIsDirty] = useState(false)
+  const [draftImageDataUrl, setDraftImageDataUrl] = useState<string | null>(null)
+  const [isMessageDirty, setIsMessageDirty] = useState(false)
+  const [isImageDirty, setIsImageDirty] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [isImageLoading, setIsImageLoading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const recipients = useMemo(() => {
     if (!broadcast) {
@@ -36,6 +48,13 @@ export function BroadcastDetailsPage() {
     )
   }, [broadcast, countBroadcastRecipients])
 
+  useEffect(() => {
+    setDraftMessage(broadcast?.message ?? '')
+    setDraftImageDataUrl(null)
+    setIsMessageDirty(false)
+    setIsImageDirty(false)
+  }, [broadcast?.id, broadcast?.message, broadcast?.imageUrl])
+
   if (!broadcast) {
     return (
       <div className="rounded-xl border border-[var(--line)] bg-white p-4 text-sm text-[var(--text-muted)]">
@@ -45,7 +64,11 @@ export function BroadcastDetailsPage() {
   }
 
   const editable = broadcast.status === 'draft'
-  const currentMessage = editable && isDirty ? draftMessage : broadcast.message
+  const isDirty = isMessageDirty || isImageDirty
+  const currentMessage =
+    editable && isMessageDirty ? draftMessage : broadcast.message
+  const currentImageUrl =
+    editable && isImageDirty ? draftImageDataUrl : broadcast.imageUrl
 
   const handleSave = async () => {
     if (!editable || !isDirty || isSaving) {
@@ -58,7 +81,10 @@ export function BroadcastDetailsPage() {
     }
 
     setIsSaving(true)
-    const saved = await updateBroadcast(broadcast.id, { message: currentMessage.trim() })
+    const saved = await updateBroadcast(broadcast.id, {
+      ...(isMessageDirty ? { message: currentMessage.trim() } : {}),
+      ...(isImageDirty ? { imageUrl: currentImageUrl } : {}),
+    })
     setIsSaving(false)
 
     if (!saved) {
@@ -66,7 +92,8 @@ export function BroadcastDetailsPage() {
       return
     }
 
-    setIsDirty(false)
+    setIsMessageDirty(false)
+    setIsImageDirty(false)
     success('Черновик сохранён')
   }
 
@@ -81,14 +108,18 @@ export function BroadcastDetailsPage() {
     }
 
     if (editable && isDirty) {
-      const saved = await updateBroadcast(broadcast.id, { message: currentMessage.trim() })
+      const saved = await updateBroadcast(broadcast.id, {
+        ...(isMessageDirty ? { message: currentMessage.trim() } : {}),
+        ...(isImageDirty ? { imageUrl: currentImageUrl } : {}),
+      })
 
       if (!saved) {
         error('Не удалось сохранить изменения перед отправкой')
         return
       }
 
-      setIsDirty(false)
+      setIsMessageDirty(false)
+      setIsImageDirty(false)
     }
 
     setIsSending(true)
@@ -102,6 +133,30 @@ export function BroadcastDetailsPage() {
 
     setOpenConfirm(false)
     success('Рассылка отправлена')
+  }
+
+  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+
+    if (!file || !editable) {
+      return
+    }
+
+    setIsImageLoading(true)
+
+    try {
+      const dataUrl = await fileToDataUrl(file)
+      setDraftImageDataUrl(dataUrl)
+      setIsImageDirty(true)
+    } catch {
+      error('Не удалось обработать картинку')
+    } finally {
+      setIsImageLoading(false)
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
   }
 
   return (
@@ -131,11 +186,56 @@ export function BroadcastDetailsPage() {
               }
 
               setDraftMessage(event.target.value)
-              if (!isDirty) {
-                setIsDirty(true)
-              }
+              setIsMessageDirty(true)
             },
           }}
+        />
+
+        <div className="space-y-3 rounded-lg border border-[var(--line)] bg-[var(--bg-surface-muted)] p-4">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Картинка</p>
+            <p className="text-sm text-[var(--text-muted)]">
+              Опционально. Если картинка добавлена, Telegram отправит фото с текстом в подписи.
+            </p>
+          </div>
+
+          {editable ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isImageLoading}
+                className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isImageLoading ? 'Загрузка...' : 'Загрузить картинку'}
+              </button>
+              {currentImageUrl ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraftImageDataUrl(null)
+                    setIsImageDirty(true)
+                  }}
+                  className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+                >
+                  Очистить
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <BroadcastPreview
+          message={currentMessage}
+          imageUrl={currentImageUrl}
+          recipientsCount={recipients}
         />
 
         <div className="grid gap-3 md:grid-cols-2">

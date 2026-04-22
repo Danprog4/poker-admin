@@ -431,10 +431,13 @@ export function NotificationsPage() {
 
   const [selectedFlowId, setSelectedFlowId] = useState<number | null>(null)
   const [manualMessage, setManualMessage] = useState('')
+  const [manualImageDataUrl, setManualImageDataUrl] = useState<string | null>(null)
   const [manualAudience, setManualAudience] = useState<'all' | 'users'>('all')
   const [manualUserQuery, setManualUserQuery] = useState('')
   const [manualTargetUserIds, setManualTargetUserIds] = useState<number[]>([])
   const [isManualSending, setIsManualSending] = useState(false)
+  const [isManualImageLoading, setIsManualImageLoading] = useState(false)
+  const manualFileInputRef = useRef<HTMLInputElement>(null)
 
   const flowsQuery = trpc.admin.notifications.flows.list.useQuery(undefined, {
     staleTime: 30_000,
@@ -516,6 +519,8 @@ export function NotificationsPage() {
     [countBroadcastRecipients, manualAudience, manualTargetUserIds],
   )
 
+  const manualPreviewImage = manualImageDataUrl
+
   const toggleFlowEnabled = (flow: NotificationFlow) => {
     if (updateFlowMutation.isPending) {
       return
@@ -551,6 +556,29 @@ export function NotificationsPage() {
     setManualTargetUserIds([])
   }
 
+  const handleManualFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    setIsManualImageLoading(true)
+
+    try {
+      const dataUrl = await fileToDataUrl(file)
+      setManualImageDataUrl(dataUrl)
+    } catch {
+      error('Не удалось обработать картинку')
+    } finally {
+      setIsManualImageLoading(false)
+
+      if (manualFileInputRef.current) {
+        manualFileInputRef.current.value = ''
+      }
+    }
+  }
+
   const handleSendManualBroadcast = async () => {
     if (isManualSending) {
       return
@@ -570,6 +598,7 @@ export function NotificationsPage() {
 
     const broadcastId = await createBroadcast({
       message: manualMessage.trim(),
+      imageUrl: manualPreviewImage,
       targetFilter: manualAudience,
       targetUserIds: manualAudience === 'users' ? manualTargetUserIds : null,
       targetSeriesId: null,
@@ -591,6 +620,7 @@ export function NotificationsPage() {
     }
 
     setManualMessage('')
+    setManualImageDataUrl(null)
     setManualUserQuery('')
     setManualTargetUserIds([])
     success('Изменения применены')
@@ -713,6 +743,50 @@ export function NotificationsPage() {
             placeholder: 'Введите текст рассылки...',
           }}
         />
+
+        <div className="space-y-3 rounded-lg border border-[var(--line)] bg-[var(--bg-surface-muted)] p-4">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Картинка</p>
+            <p className="text-sm text-[var(--text-muted)]">
+              Опционально. Если добавить картинку, Telegram отправит фото с текстом в подписи.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={manualFileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleManualFileChange}
+            />
+            <button
+              type="button"
+              onClick={() => manualFileInputRef.current?.click()}
+              disabled={isManualImageLoading}
+              className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isManualImageLoading ? 'Загрузка...' : 'Загрузить картинку'}
+            </button>
+            {manualPreviewImage ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setManualImageDataUrl(null)
+                }}
+                className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+              >
+                Очистить
+              </button>
+            ) : null}
+          </div>
+
+          {manualPreviewImage ? (
+            <div className="overflow-hidden rounded-lg border border-[var(--line)] bg-white">
+              <img src={manualPreviewImage} alt="Превью картинки рассылки" className="h-44 w-full object-cover" />
+            </div>
+          ) : null}
+        </div>
 
         <FormField
           as="select"

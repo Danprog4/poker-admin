@@ -113,6 +113,7 @@ export type UserAchievement = {
 export type Broadcast = {
   id: number
   message: string
+  imageUrl: string | null
   targetFilter: BroadcastTargetFilter
   targetUserIds: number[]
   targetSeriesId: number | null
@@ -194,6 +195,7 @@ export type CreateAchievementInput = {
 
 export type CreateBroadcastInput = {
   message: string
+  imageUrl: string | null
   targetFilter: BroadcastTargetFilter
   targetUserIds: number[] | null
   targetSeriesId: number | null

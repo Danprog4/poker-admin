@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { BroadcastPreview } from '../components/BroadcastPreview'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { FormField } from '../components/FormField'
 import type { BroadcastTargetFilter } from '../lib/admin-models'
+import { fileToDataUrl } from '../lib/imageUpload'
 import { useToast } from '../providers/ToastProvider'
 import { useAdminData } from '../providers/useAdminData'
 
@@ -14,12 +15,17 @@ export function BroadcastNewPage() {
   const { error, success } = useToast()
 
   const [message, setMessage] = useState('')
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
   const [targetFilter, setTargetFilter] = useState<BroadcastTargetFilter>('all')
   const [targetSeriesId, setTargetSeriesId] = useState('none')
   const [targetTournamentId, setTargetTournamentId] = useState('none')
   const [openConfirm, setOpenConfirm] = useState(false)
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [isImageLoading, setIsImageLoading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const finalImageUrl = imageDataUrl
 
   const recipientsCount = useMemo(
     () =>
@@ -44,6 +50,7 @@ export function BroadcastNewPage() {
     setIsSavingDraft(true)
     const createdId = await createBroadcast({
       message: message.trim(),
+      imageUrl: finalImageUrl,
       targetFilter,
       targetUserIds: null,
       targetSeriesId: targetSeriesId === 'none' ? null : Number(targetSeriesId),
@@ -74,6 +81,7 @@ export function BroadcastNewPage() {
     setIsSending(true)
     const createdId = await createBroadcast({
       message: message.trim(),
+      imageUrl: finalImageUrl,
       targetFilter,
       targetUserIds: null,
       targetSeriesId: targetSeriesId === 'none' ? null : Number(targetSeriesId),
@@ -100,6 +108,29 @@ export function BroadcastNewPage() {
     navigate(`/broadcasts/${createdId}`)
   }
 
+  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    setIsImageLoading(true)
+
+    try {
+      const dataUrl = await fileToDataUrl(file)
+      setImageDataUrl(dataUrl)
+    } catch {
+      error('Не удалось обработать картинку')
+    } finally {
+      setIsImageLoading(false)
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
   return (
     <div className="space-y-4">
       <h1 className="font-['Space_Grotesk'] text-2xl font-bold">Новая рассылка</h1>
@@ -116,6 +147,44 @@ export function BroadcastNewPage() {
               placeholder: 'Введите текст рассылки...',
             }}
           />
+
+          <div className="space-y-3 rounded-lg border border-[var(--line)] bg-[var(--bg-surface-muted)] p-4">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Картинка</p>
+              <p className="text-sm text-[var(--text-muted)]">
+                Опционально. Если добавить картинку, Telegram отправит фото с текстом в подписи.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isImageLoading}
+                className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isImageLoading ? 'Загрузка...' : 'Загрузить картинку'}
+              </button>
+              {finalImageUrl ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImageDataUrl(null)
+                  }}
+                  className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+                >
+                  Очистить
+                </button>
+              ) : null}
+            </div>
+          </div>
 
           <FormField
             as="select"
@@ -184,7 +253,11 @@ export function BroadcastNewPage() {
           </div>
         </section>
 
-        <BroadcastPreview message={message} recipientsCount={recipientsCount} />
+        <BroadcastPreview
+          message={message}
+          imageUrl={finalImageUrl}
+          recipientsCount={recipientsCount}
+        />
       </div>
       <ConfirmDialog
         open={openConfirm}
