@@ -377,8 +377,8 @@ export function TournamentDetailsPage() {
 
     const list = rows
       .map(
-        (participant, index) =>
-          `${index + 1}. ${getParticipantDisplayName(participant.user)}`,
+        (participant) =>
+          `${participant.registration.registrationNumber}. ${getParticipantDisplayName(participant.user)}`,
       )
       .join('\n')
 
@@ -457,21 +457,11 @@ export function TournamentDetailsPage() {
           String(participant.user.id).includes(normalized)
         )
       })
-      .sort((left, right) => {
-        const leftPlace =
-          getResultDraft(left.user.id, left.result).place || Number.POSITIVE_INFINITY
-        const rightPlace =
-          getResultDraft(right.user.id, right.result).place || Number.POSITIVE_INFINITY
-
-        if (leftPlace !== rightPlace) {
-          return leftPlace - rightPlace
-        }
-
-        return (
-          left.registration.registrationNumber - right.registration.registrationNumber
-        )
-      })
-  }, [participantQuery, participants, resultsDraft])
+      .sort(
+        (left, right) =>
+          left.registration.registrationNumber - right.registration.registrationNumber,
+      )
+  }, [participantQuery, participants])
 
   const enteredResultsParticipants = useMemo(
     () =>
